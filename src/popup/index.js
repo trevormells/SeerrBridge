@@ -14,6 +14,7 @@ import {
   normalizeText as normalize
 } from '../lib/text.js';
 import { createSettingsPanel } from '../lib/settingsPanel.js';
+import { deriveMediaInfoStatuses } from '../lib/mediaStatus.js';
 
 /**
  * @typedef {import('../lib/types.js').DetectionResponse} DetectionResponse
@@ -1158,7 +1159,7 @@ function normalizeOverseerrResult(result = {}) {
   const resolvedTitle = primaryTitle || fallbackTitle || '';
   const releaseDate = mediaType === 'tv' ? result.firstAirDate : result.releaseDate;
   const releaseYear = releaseDate ? new Date(releaseDate).getFullYear() : Number.NaN;
-  const statuses = extractMediaInfoStatuses(result.mediaInfo);
+  const statuses = deriveMediaInfoStatuses(result.mediaInfo);
   return {
     title: resolvedTitle,
     releaseYear: Number.isNaN(releaseYear) ? '' : String(releaseYear),
@@ -1716,24 +1717,6 @@ function buildStatusLabel(prefix, message) {
     return message;
   }
   return `${prefix} ${message.toLowerCase()}`;
-}
-
-function extractMediaInfoStatuses(mediaInfo) {
-  const availability = typeof mediaInfo?.status === 'number' ? mediaInfo.status : null;
-  let requestStatus = null;
-  if (Array.isArray(mediaInfo?.requests) && mediaInfo.requests.length) {
-    const sorted = [...mediaInfo.requests].sort((a, b) => {
-      const aTime = new Date(a?.createdAt || 0).getTime();
-      const bTime = new Date(b?.createdAt || 0).getTime();
-      return bTime - aTime;
-    });
-    const latest = sorted[0];
-    if (latest && typeof latest.status === 'number') {
-      requestStatus = latest.status;
-    }
-  }
-
-  return { availability, requestStatus };
 }
 
 function prepareStatusReadyList(list, canCheckStatus) {

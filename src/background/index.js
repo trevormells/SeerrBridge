@@ -6,6 +6,7 @@ import {
   fetchOverseerrStatus
 } from '../lib/overseerr.js';
 import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
+import { deriveMediaInfoStatuses } from '../lib/mediaStatus.js';
 
 /**
  * @typedef {import('../lib/types.js').OverseerrRequestPayload} OverseerrRequestPayload
@@ -277,26 +278,6 @@ async function handleOverseerrRatings({ tmdbId, mediaType }) {
 
   const payload = await response.json().catch(() => ({}));
   return { ratings: payload };
-}
-
-function deriveMediaInfoStatuses(mediaInfo) {
-  const availability =
-    typeof mediaInfo?.status === 'number' ? mediaInfo.status : null;
-
-  let requestStatus = null;
-  if (Array.isArray(mediaInfo?.requests) && mediaInfo.requests.length) {
-    const sorted = [...mediaInfo.requests].sort((a, b) => {
-      const aTime = new Date(a?.createdAt || 0).getTime();
-      const bTime = new Date(b?.createdAt || 0).getTime();
-      return bTime - aTime;
-    });
-    const latest = sorted[0];
-    if (latest && typeof latest.status === 'number') {
-      requestStatus = latest.status;
-    }
-  }
-
-  return { availability, requestStatus };
 }
 
 function getSettings() {
