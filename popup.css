@@ -321,11 +321,60 @@ input {
   color: #f8fafc;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
-.media-ratings span {
+.media-ratings.has-ratings::before,
+.media-ratings.has-ratings::after {
+  content: '';
   display: block;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  margin: 4px 0;
+}
+
+.rating-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.4);
+}
+
+.rating-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 6px rgba(15, 23, 42, 0.4));
+}
+
+.rating-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.rating-heading {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.rating-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.rating-qualifier {
+  font-size: 0.7rem;
+  color: #fbbf24;
+  margin-left: 6px;
 }
 
 .media-ratings.is-muted {

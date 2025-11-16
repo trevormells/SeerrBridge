@@ -59,6 +59,11 @@ const ratingsRequestTokens = {
   search: 0
 };
 
+const ratingProviderIcons = {
+  rt: getAssetUrl('assets/rating_providers/rt_logo_100px.png'),
+  imdb: getAssetUrl('assets/rating_providers/IMDB_logo_100px.png')
+};
+
 const elements = {
   statusBar: document.querySelector('.status'),
   statusText: document.getElementById('status-text'),
@@ -798,11 +803,8 @@ function createRatingsBlock(media) {
     return container;
   }
 
-  lines.forEach((text) => {
-    const span = document.createElement('span');
-    span.textContent = text;
-    container.appendChild(span);
-  });
+  container.classList.add('has-ratings');
+  lines.forEach((line) => container.appendChild(line));
 
   return container;
 }
@@ -866,42 +868,106 @@ function buildRatingLines(ratings) {
   if (!ratings || typeof ratings !== 'object') {
     return [];
   }
+
   const lines = [];
-  const rtLine = formatRottenTomatoesLine(ratings.rt);
-  if (rtLine) {
-    lines.push(rtLine);
+  buildRottenTomatoesEntries(ratings.rt).forEach((entry) => {
+    lines.push(
+      createRatingLine({
+        provider: 'Rotten Tomatoes',
+        category: entry.category,
+        value: entry.value,
+        qualifier: entry.qualifier,
+        icon: ratingProviderIcons.rt
+      })
+    );
+  });
+
+  const imdbEntry = buildImdbEntry(ratings.imdb);
+  if (imdbEntry) {
+    lines.push(
+      createRatingLine({
+        provider: 'IMDb',
+        category: '',
+        value: imdbEntry.value,
+        qualifier: imdbEntry.qualifier,
+        icon: ratingProviderIcons.imdb
+      })
+    );
   }
-  const imdbLine = formatImdbLine(ratings.imdb);
-  if (imdbLine) {
-    lines.push(imdbLine);
-  }
+
   return lines;
 }
 
-function formatRottenTomatoesLine(entry) {
+function buildRottenTomatoesEntries(entry) {
+  const entries = [];
   if (!entry) {
-    return '';
+    return entries;
   }
-  const segments = [];
+
   if (typeof entry.criticsScore === 'number') {
-    const ratingLabel = entry.criticsRating ? ` (${entry.criticsRating})` : '';
-    segments.push(`Critics ${formatPercentScore(entry.criticsScore)}${ratingLabel}`);
+    entries.push({
+      category: 'Critics',
+      value: formatPercentScore(entry.criticsScore),
+      qualifier: entry.criticsRating || ''
+    });
   }
+
   if (typeof entry.audienceScore === 'number') {
-    const ratingLabel = entry.audienceRating ? ` (${entry.audienceRating})` : '';
-    segments.push(`Audience ${formatPercentScore(entry.audienceScore)}${ratingLabel}`);
+    entries.push({
+      category: 'Audience',
+      value: formatPercentScore(entry.audienceScore),
+      qualifier: entry.audienceRating || ''
+    });
   }
-  if (!segments.length) {
-    return '';
-  }
-  return `Rotten Tomatoes: ${segments.join(' · ')}`;
+
+  return entries;
 }
 
-function formatImdbLine(entry) {
+function buildImdbEntry(entry) {
   if (!entry || typeof entry.criticsScore !== 'number') {
-    return '';
+    return null;
   }
-  return `IMDb: ${formatDecimalScore(entry.criticsScore)}/10`;
+  return {
+    category: '',
+    value: `${formatDecimalScore(entry.criticsScore)}/10`,
+    qualifier: ''
+  };
+}
+
+function createRatingLine({ provider, category, value, qualifier, icon }) {
+  const line = document.createElement('div');
+  line.className = 'rating-line';
+
+  if (icon) {
+    const iconElement = document.createElement('img');
+    iconElement.src = icon;
+    iconElement.alt = `${provider} icon`;
+    iconElement.className = 'rating-icon';
+    line.appendChild(iconElement);
+  }
+
+  const textWrapper = document.createElement('div');
+  textWrapper.className = 'rating-text';
+
+  const heading = document.createElement('div');
+  heading.className = 'rating-heading';
+  heading.textContent = category ? `${provider} • ${category}` : provider;
+  textWrapper.appendChild(heading);
+
+  const valueElement = document.createElement('div');
+  valueElement.className = 'rating-value';
+  valueElement.textContent = value;
+  if (qualifier) {
+    valueElement.appendChild(document.createTextNode(' '));
+    const qualifierElement = document.createElement('span');
+    qualifierElement.className = 'rating-qualifier';
+    qualifierElement.textContent = qualifier;
+    valueElement.appendChild(qualifierElement);
+  }
+  textWrapper.appendChild(valueElement);
+
+  line.appendChild(textWrapper);
+  return line;
 }
 
 function formatPercentScore(score) {
@@ -913,6 +979,13 @@ function formatDecimalScore(score) {
     return `${score}`;
   }
   return score.toFixed(1);
+}
+
+function getAssetUrl(relativePath) {
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+    return chrome.runtime.getURL(relativePath);
+  }
+  return relativePath;
 }
 
 async function fetchStatusesForList(listName, token) {
