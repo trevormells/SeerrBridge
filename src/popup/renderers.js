@@ -319,7 +319,7 @@ function createOverseerrStatusBlock(media) {
   return container;
 }
 
-function buildRatingEntries(ratings) {
+export function buildRatingEntries(ratings) {
   if (!ratings || typeof ratings !== 'object') {
     return [];
   }
@@ -363,11 +363,11 @@ function buildRatingEntries(ratings) {
   return entries;
 }
 
-function formatPercentScore(score) {
+export function formatPercentScore(score) {
   return `${Math.round(score)}%`;
 }
 
-function formatDecimalScore(score) {
+export function formatDecimalScore(score) {
   if (Number.isInteger(score)) {
     return `${score}`;
   }

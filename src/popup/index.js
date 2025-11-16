@@ -8,10 +8,18 @@ import {
   normalizeText as normalize
 } from '../lib/text.js';
 import { createSettingsPanel } from '../lib/settingsPanel.js';
-import { renderMediaList, configureRendererContext } from './renderers.js';
+import {
+  buildRatingEntries,
+  configureRendererContext,
+  formatDecimalScore,
+  formatPercentScore,
+  renderMediaList
+} from './renderers.js';
 import {
   dedupeMedia,
   isOverseerrTrackableMedia,
+  mediaCompletenessScore,
+  pickPreferredMedia,
   prepareRatingsReadyList,
   prepareStatusReadyList
 } from './mediaUtils.js';
