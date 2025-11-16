@@ -7,6 +7,8 @@ const { spawnSync } = require('child_process');
 const root = path.join(__dirname, '..');
 const skipDirs = new Set(['node_modules', '.git', 'dist']);
 const jsFiles = [];
+const testsDir = path.join(root, 'tests');
+const testFiles = [];
 
 function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -23,7 +25,25 @@ function walk(dir) {
   }
 }
 
+function collectTests(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (skipDirs.has(entry.name)) {
+      continue;
+    }
+
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectTests(full);
+    } else if (entry.isFile() && entry.name.endsWith('.test.js')) {
+      testFiles.push(full);
+    }
+  }
+}
+
 walk(root);
+if (fs.existsSync(testsDir)) {
+  collectTests(testsDir);
+}
 
 if (jsFiles.length === 0) {
   console.log('No JavaScript files to check.');
@@ -50,3 +70,14 @@ if (failed) {
 }
 
 console.log('All JavaScript files passed syntax checks.');
+
+if (testFiles.length) {
+  console.log('Running unit tests...');
+  const testResult = spawnSync(process.execPath, ['--test', ...testFiles], {
+    stdio: 'inherit'
+  });
+
+  if (testResult.status !== 0) {
+    process.exit(testResult.status || 1);
+  }
+}
