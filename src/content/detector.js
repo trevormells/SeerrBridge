@@ -10,7 +10,6 @@
   ]);
 
   const DEFAULT_DETECTION_LIMIT = DETECTION_LIMITS.default;
-  const MAX_DETECTION_LIMIT = DETECTION_LIMITS.max;
   const MEDIA_TYPES = ['Movie', 'TVSeries', 'TVEpisode', 'VideoObject'];
   const WEAK_TITLE_PATTERNS = [
     /\blist of\b/i,
