@@ -13,9 +13,13 @@
       h1 {
         margin-top: 0;
       }
+      .settings-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
       label {
         display: block;
-        margin-bottom: 6px;
         font-size: 0.9rem;
       }
       input {
@@ -25,10 +29,6 @@
         border: 1px solid #334155;
         background: #0b1220;
         color: #f8fafc;
-        margin-bottom: 16px;
-      }
-      .row {
-        margin-bottom: 12px;
       }
       button {
         background: #0891b2;
@@ -43,15 +43,19 @@
         background: transparent;
         border: 1px solid #334155;
       }
-      .status {
+      .panel-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .panel-status {
         margin-top: 16px;
         min-height: 20px;
         font-size: 0.9rem;
       }
-      .status[data-tone='warning'] {
+      .panel-status[data-tone='warning'] {
         color: #fde047;
       }
-      .status[data-tone='error'] {
+      .panel-status[data-tone='error'] {
         color: #fecaca;
       }
       .grid {
@@ -68,52 +72,7 @@
     <div class="grid">
       <h1>SeerrBridge</h1>
       <p>Store your Overseerr URL and preferences. These are saved locally via chrome.storage.</p>
-      <form id="settings-form">
-        <div class="row">
-          <label for="overseerrUrl">Overseerr URL</label>
-          <input
-            id="overseerrUrl"
-            name="overseerrUrl"
-            placeholder="https://overseerr.example.com"
-            autocomplete="off"
-          />
-        </div>
-        <label class="toggle">
-          <input id="prefer4k" type="checkbox" />
-          Prefer 4K requests
-        </label>
-        <label class="toggle">
-          <input id="showWeakDetections" name="showWeakDetections" type="checkbox" />
-          Show weak detections (debug)
-        </label>
-        <div class="row">
-          <label for="maxDetections">Maximum detections shown</label>
-          <input
-            id="maxDetections"
-            name="maxDetections"
-            type="number"
-            min="1"
-            max="100"
-            placeholder="Defaults to 10"
-          />
-        </div>
-        <div class="row">
-          <label for="descriptionLength">Description display length (characters)</label>
-          <input
-            id="descriptionLength"
-            name="descriptionLength"
-            type="number"
-            min="10"
-            max="500"
-            placeholder="Defaults to 30"
-          />
-        </div>
-        <div class="row">
-          <button type="submit">Save</button>
-          <button type="button" id="test-overseerr" class="secondary">Test Overseerr</button>
-        </div>
-        <p class="status" id="options-status"></p>
-      </form>
+      <div id="options-settings-panel"></div>
     </div>
     <script type="module" src="src/popup/options.js"></script>
   </body>

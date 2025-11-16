@@ -139,51 +139,7 @@
           <h2>Settings</h2>
         </div>
       </div>
-      <form id="inline-settings-form" class="settings-form">
-        <label for="overseerrUrl">Overseerr URL</label>
-        <input
-          id="overseerrUrl"
-          name="overseerrUrl"
-          placeholder="https://overseerr.example.com"
-          autocomplete="off"
-        />
-
-        <label class="toggle">
-          <input id="prefer4k" name="prefer4k" type="checkbox" />
-          Prefer 4K requests
-        </label>
-
-        <label class="toggle">
-          <input id="showWeakDetections" name="showWeakDetections" type="checkbox" />
-          Show weak detections (debug)
-        </label>
-
-        <label for="maxDetections">Maximum detections shown</label>
-        <input
-          id="maxDetections"
-          name="maxDetections"
-          type="number"
-          min="1"
-          max="100"
-          placeholder="Defaults to 10"
-        />
-
-        <label for="descriptionLength">Description display length (characters)</label>
-        <input
-          id="descriptionLength"
-          name="descriptionLength"
-          type="number"
-          min="10"
-          max="500"
-          placeholder="Defaults to 30"
-        />
-
-        <div class="panel-actions">
-          <button type="submit">Save</button>
-          <button type="button" id="inline-test-overseerr" class="secondary">Test Overseerr</button>
-        </div>
-      </form>
-      <p id="inline-settings-status" class="panel-status"></p>
+      <div id="inline-settings-panel"></div>
     </section>
 
     <section id="view-help" class="view panel hidden">
