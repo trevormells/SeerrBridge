@@ -7,6 +7,26 @@ import {
 } from '../lib/overseerr.js';
 import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
 
+const defaultDependencies = {
+  loadSettings,
+  executeOverseerrRequest,
+  OverseerrAuthError,
+  logOverseerrFailure,
+  fetchOverseerrStatus,
+  sanitizeBaseUrl,
+  buildOverseerrUrl
+};
+
+const dependencies = { ...defaultDependencies };
+
+export function __setBackgroundTestDependencies(overrides = {}) {
+  Object.assign(dependencies, overrides);
+}
+
+export function __resetBackgroundTestDependencies() {
+  Object.assign(dependencies, defaultDependencies);
+}
+
 /**
  * @typedef {import('../lib/types.js').OverseerrRequestPayload} OverseerrRequestPayload
  * @typedef {import('../lib/types.js').OverseerrSearchPayload} OverseerrSearchPayload
@@ -51,7 +71,8 @@ export function createRuntimeMessageListener(handlers = runtimeHandlers) {
         });
 
         const payload = { ok: false, error: error?.message || 'Unknown error' };
-        if (error instanceof OverseerrAuthError) {
+        const AuthError = dependencies.OverseerrAuthError;
+        if (AuthError && error instanceof AuthError) {
           payload.code = error.code;
         }
         sendResponse(payload);
@@ -82,7 +103,7 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
     throw new Error('Add your Overseerr URL in the extension options.');
   }
 
-  const sanitizedBase = sanitizeBaseUrl(settings.overseerrUrl);
+  const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
   let searchText = query;
   if (Number.isFinite(year)) {
     const yearValue = Number.parseInt(year, 10);
@@ -96,7 +117,7 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
   });
 
   const endpointWithQuery = `/api/v1/search?query=${encodedQuery}&${params.toString()}`;
-  const { response, url } = await executeOverseerrRequest(
+  const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     endpointWithQuery,
     {},
@@ -136,7 +157,7 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
     throw new Error('Add your Overseerr URL in the options page.');
   }
 
-  const sanitizedBase = sanitizeBaseUrl(settings.overseerrUrl);
+  const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
   await ensureOverseerrSession(sanitizedBase, { openLoginTabOnFailure: true });
   const normalizedType = mediaType === 'tv' ? 'tv' : 'movie';
   const body = {
@@ -152,7 +173,7 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
     body.seasons = [];
   }
 
-  const { response, url } = await executeOverseerrRequest(
+  const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     '/api/v1/request',
     {
@@ -169,7 +190,7 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
 
   if (!response.ok) {
     const text = await response.text();
-    logOverseerrFailure({
+    dependencies.logOverseerrFailure({
       url,
       status: response.status,
       statusText: response.statusText,
@@ -206,8 +227,8 @@ async function handleOverseerrMediaStatus({ tmdbId, mediaType }) {
     normalizedType === 'tv'
       ? `/api/v1/tv/${encodeURIComponent(tmdbId)}`
       : `/api/v1/movie/${encodeURIComponent(tmdbId)}`;
-  const sanitizedBase = sanitizeBaseUrl(settings.overseerrUrl);
-  const { response, url } = await executeOverseerrRequest(
+  const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
+  const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     endpoint,
     {},
@@ -252,8 +273,8 @@ async function handleOverseerrRatings({ tmdbId, mediaType }) {
     normalizedType === 'tv'
       ? `/api/v1/tv/${encodeURIComponent(tmdbId)}/ratingscombined`
       : `/api/v1/movie/${encodeURIComponent(tmdbId)}/ratingscombined`;
-  const sanitizedBase = sanitizeBaseUrl(settings.overseerrUrl);
-  const { response, url } = await executeOverseerrRequest(
+  const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
+  const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     endpoint,
     {},
@@ -300,7 +321,7 @@ function deriveMediaInfoStatuses(mediaInfo) {
 }
 
 function getSettings() {
-  return loadSettings(STORAGE_KEYS);
+  return dependencies.loadSettings(STORAGE_KEYS);
 }
 
 /**
@@ -310,13 +331,13 @@ function getSettings() {
 async function handleCheckOverseerrStatus({ overseerrUrl } = {}) {
   const base =
     overseerrUrl && overseerrUrl.trim()
-      ? sanitizeBaseUrl(overseerrUrl)
-      : sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
+      ? dependencies.sanitizeBaseUrl(overseerrUrl)
+      : dependencies.sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
   if (!base) {
     throw new Error('Add your Overseerr URL in the options page.');
   }
 
-  const status = await fetchOverseerrStatus(base);
+  const status = await dependencies.fetchOverseerrStatus(base);
   return {
     baseUrl: base,
     version: status.version,
@@ -338,8 +359,8 @@ async function handleCheckOverseerrSession({
 } = {}) {
   const base =
     overseerrUrl && overseerrUrl.trim()
-      ? sanitizeBaseUrl(overseerrUrl)
-      : sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
+      ? dependencies.sanitizeBaseUrl(overseerrUrl)
+      : dependencies.sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
   if (!base) {
     throw new Error('Add your Overseerr URL in the options page.');
   }
@@ -352,13 +373,13 @@ async function handleCheckOverseerrSession({
 }
 
 async function ensureOverseerrSession(baseUrl, options = {}) {
-  const sanitized = sanitizeBaseUrl(baseUrl);
+  const sanitized = dependencies.sanitizeBaseUrl(baseUrl);
   const cached = sessionCache.get(sanitized);
   if (cached && cached.expiresAt > Date.now() && !options.forceRefresh) {
     return true;
   }
 
-  const { response, url } = await executeOverseerrRequest(
+  const { response, url } = await dependencies.executeOverseerrRequest(
     sanitized,
     '/api/v1/auth/me',
     {},
@@ -380,11 +401,11 @@ async function ensureOverseerrSession(baseUrl, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!payload || typeof payload.id !== 'number') {
-    throw new OverseerrAuthError('Log into Overseerr in the opened tab, then retry.');
+    throw new dependencies.OverseerrAuthError('Log into Overseerr in the opened tab, then retry.');
   }
 
   if (typeof payload.userType === 'string' && payload.userType.toUpperCase() === 'GUEST') {
-    throw new OverseerrAuthError('Log into Overseerr with an account that can make requests.');
+    throw new dependencies.OverseerrAuthError('Log into Overseerr with an account that can make requests.');
   }
 
   sessionCache.set(sanitized, {
@@ -397,8 +418,8 @@ async function openOverseerrLoginTab(baseUrl) {
   if (!chrome?.tabs?.create) {
     return;
   }
-  const sanitized = sanitizeBaseUrl(baseUrl);
-  const loginUrl = buildOverseerrUrl(sanitized, '/login');
+  const sanitized = dependencies.sanitizeBaseUrl(baseUrl);
+  const loginUrl = dependencies.buildOverseerrUrl(sanitized, '/login');
   const existingTabId = pendingLoginTabs.get(sanitized);
 
   if (existingTabId && Number.isInteger(existingTabId)) {
@@ -463,3 +484,15 @@ if (hasChrome && chrome?.tabs?.onRemoved) {
     }
   });
 }
+
+export {
+  handleOverseerrSearch,
+  handleOverseerrRequest,
+  handleOverseerrMediaStatus,
+  handleOverseerrRatings,
+  handleCheckOverseerrSession,
+  handleCheckOverseerrStatus,
+  ensureOverseerrSession,
+  deriveMediaInfoStatuses,
+  createAuthFailureHandler
+};
