@@ -21,11 +21,34 @@
  */
 
 /**
+ * Represents third-party ratings captured by Overseerr.
+ * @typedef {Object} MediaRatingsEntry
+ * @property {string} [title]
+ * @property {number|string} [year]
+ * @property {string} [url]
+ * @property {number} [criticsScore]
+ * @property {string} [criticsRating]
+ * @property {number} [audienceScore]
+ * @property {string} [audienceRating]
+ */
+
+/**
+ * Combined ratings payload keyed by provider.
+ * @typedef {Object} MediaRatings
+ * @property {MediaRatingsEntry|null} [rt]
+ * @property {MediaRatingsEntry|null} [imdb]
+ */
+
+/**
  * Union representing media entries rendered in the popup lists.
  * @typedef {DetectedMediaCandidate & {
  *   tmdbId: number|null,
  *   overview?: string,
  *   rating?: number|null,
+ *   ratings?: MediaRatings|null,
+ *   ratingsLoading?: boolean,
+ *   ratingsError?: string,
+ *   showRatings?: boolean,
  *   availabilityStatus?: number|null,
  *   requestStatus?: number|null
  * }} EnrichedMediaItem
@@ -70,6 +93,13 @@
 /**
  * Payload for status lookups.
  * @typedef {Object} OverseerrStatusPayload
+ * @property {number} tmdbId
+ * @property {MediaType} mediaType
+ */
+
+/**
+ * Payload for requesting Overseerr ratings metadata.
+ * @typedef {Object} OverseerrRatingsPayload
  * @property {number} tmdbId
  * @property {MediaType} mediaType
  */

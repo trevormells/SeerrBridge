@@ -50,6 +50,12 @@ const statusRequestTokens = {
   search: 0
 };
 
+const ratingsRequestTokens = {
+  detected: 0,
+  weak: 0,
+  search: 0
+};
+
 const elements = {
   statusBar: document.querySelector('.status'),
   statusText: document.getElementById('status-text'),
@@ -434,8 +440,15 @@ async function refreshDetectedMedia() {
     state.weakDetections = dedupeMedia(await decorateCandidates(weakCandidates));
     promoteResolvedWeakDetections();
     const canCheckStatus = canCheckOverseerrStatus();
-    state.detected = prepareStatusReadyList(state.detected, canCheckStatus);
-    state.weakDetections = prepareStatusReadyList(state.weakDetections, canCheckStatus);
+    const canFetchRatings = canFetchOverseerrRatings();
+    state.detected = prepareRatingsReadyList(
+      prepareStatusReadyList(state.detected, canCheckStatus),
+      canFetchRatings
+    );
+    state.weakDetections = prepareRatingsReadyList(
+      prepareStatusReadyList(state.weakDetections, canCheckStatus),
+      canFetchRatings
+    );
     renderMediaList(state.detected, elements.detectedList, elements.detectedEmpty);
     renderMediaList(
       state.weakDetections,
@@ -447,6 +460,12 @@ async function refreshDetectedMedia() {
       const weakToken = ++statusRequestTokens.weak;
       fetchStatusesForList('detected', detectedToken);
       fetchStatusesForList('weak', weakToken);
+    }
+    if (canFetchRatings) {
+      const detectedToken = ++ratingsRequestTokens.detected;
+      const weakToken = ++ratingsRequestTokens.weak;
+      fetchRatingsForList('detected', detectedToken);
+      fetchRatingsForList('weak', weakToken);
     }
 
     const weakToggleOn = shouldShowWeakDetections();
@@ -572,14 +591,21 @@ async function performManualSearch(query) {
   try {
     const { results } = await callBackground('OVERSEERR_SEARCH', searchPayload);
     const canCheckStatus = canCheckOverseerrStatus();
+    const canFetchRatings = canFetchOverseerrRatings();
     const normalizedResults = (results || [])
       .filter((item) => isOverseerrTrackableMedia(item?.mediaType))
       .map(normalizeOverseerrResult);
-    state.searchResults = prepareStatusReadyList(normalizedResults, canCheckStatus);
+    let preparedResults = prepareStatusReadyList(normalizedResults, canCheckStatus);
+    preparedResults = prepareRatingsReadyList(preparedResults, canFetchRatings);
+    state.searchResults = preparedResults;
     renderMediaList(state.searchResults, elements.searchResults, elements.searchEmpty);
-    const token = ++statusRequestTokens.search;
+    const statusToken = ++statusRequestTokens.search;
     if (canCheckStatus) {
-      fetchStatusesForList('search', token);
+      fetchStatusesForList('search', statusToken);
+    }
+    if (canFetchRatings) {
+      const ratingsToken = ++ratingsRequestTokens.search;
+      fetchRatingsForList('search', ratingsToken);
     }
     if (!results?.length) {
       setStatus('No Overseerr matches. Try another search.', 'warning');
@@ -726,6 +752,10 @@ function createMediaCard(media) {
   info.appendChild(title);
   info.appendChild(meta);
   info.appendChild(overview);
+  const ratingsBlock = createRatingsBlock(media);
+  if (ratingsBlock) {
+    info.appendChild(ratingsBlock);
+  }
   const statusBlock = createOverseerrStatusBlock(media);
   if (statusBlock) {
     info.appendChild(statusBlock);
@@ -790,6 +820,56 @@ function createMediaRequestAction(media) {
   return button;
 }
 
+function createRatingsBlock(media) {
+  if (!media?.showRatings) {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'media-ratings';
+
+  if (!canFetchOverseerrRatings()) {
+    const message = state.settings.overseerrUrl
+      ? 'Log into Overseerr to load ratings.'
+      : 'Add your Overseerr URL to load ratings.';
+    container.textContent = message;
+    container.classList.add('is-muted');
+    return container;
+  }
+
+  if (!media.tmdbId) {
+    container.textContent = 'Match via Overseerr search to load ratings.';
+    container.classList.add('is-muted');
+    return container;
+  }
+
+  if (media.ratingsLoading) {
+    container.textContent = 'Loading ratings…';
+    return container;
+  }
+
+  if (media.ratingsError) {
+    container.textContent = media.ratingsError;
+    container.classList.add('is-error');
+    return container;
+  }
+
+  const lines = buildRatingLines(media.ratings);
+  if (!lines.length) {
+    container.textContent = 'Ratings unavailable.';
+    container.classList.add('is-muted');
+    return container;
+  }
+
+  lines.forEach((text) => {
+    const span = document.createElement('span');
+    span.textContent = text;
+    container.appendChild(span);
+  });
+
+  return container;
+}
+
 function createOverseerrStatusBlock(media) {
   if (!media || !isOverseerrTrackableMedia(media.mediaType)) {
     return null;
@@ -845,6 +925,59 @@ function createOverseerrStatusBlock(media) {
   return container;
 }
 
+function buildRatingLines(ratings) {
+  if (!ratings || typeof ratings !== 'object') {
+    return [];
+  }
+  const lines = [];
+  const rtLine = formatRottenTomatoesLine(ratings.rt);
+  if (rtLine) {
+    lines.push(rtLine);
+  }
+  const imdbLine = formatImdbLine(ratings.imdb);
+  if (imdbLine) {
+    lines.push(imdbLine);
+  }
+  return lines;
+}
+
+function formatRottenTomatoesLine(entry) {
+  if (!entry) {
+    return '';
+  }
+  const segments = [];
+  if (typeof entry.criticsScore === 'number') {
+    const ratingLabel = entry.criticsRating ? ` (${entry.criticsRating})` : '';
+    segments.push(`Critics ${formatPercentScore(entry.criticsScore)}${ratingLabel}`);
+  }
+  if (typeof entry.audienceScore === 'number') {
+    const ratingLabel = entry.audienceRating ? ` (${entry.audienceRating})` : '';
+    segments.push(`Audience ${formatPercentScore(entry.audienceScore)}${ratingLabel}`);
+  }
+  if (!segments.length) {
+    return '';
+  }
+  return `Rotten Tomatoes: ${segments.join(' · ')}`;
+}
+
+function formatImdbLine(entry) {
+  if (!entry || typeof entry.criticsScore !== 'number') {
+    return '';
+  }
+  return `IMDb: ${formatDecimalScore(entry.criticsScore)}/10`;
+}
+
+function formatPercentScore(score) {
+  return `${Math.round(score)}%`;
+}
+
+function formatDecimalScore(score) {
+  if (Number.isInteger(score)) {
+    return `${score}`;
+  }
+  return score.toFixed(1);
+}
+
 async function fetchStatusesForList(listName, token) {
   const config = STATUS_LIST_CONFIG[listName];
   if (!config) {
@@ -877,7 +1010,7 @@ async function fetchStatusesForList(listName, token) {
       if (token !== statusRequestTokens[listName]) {
         return;
       }
-      applyStatusPatch(listName, media.tmdbId, {
+      applyMediaPatch(listName, media.tmdbId, {
         statusLoading: false,
         availabilityStatus:
           typeof response?.availability === 'number' ? response.availability : null,
@@ -889,7 +1022,7 @@ async function fetchStatusesForList(listName, token) {
       if (token !== statusRequestTokens[listName]) {
         return;
       }
-      applyStatusPatch(listName, media.tmdbId, {
+      applyMediaPatch(listName, media.tmdbId, {
         statusLoading: false,
         statusError: error.message || 'Status lookup failed.'
       });
@@ -904,7 +1037,59 @@ async function fetchStatusesForList(listName, token) {
   }
 }
 
-function applyStatusPatch(listName, tmdbId, patch) {
+async function fetchRatingsForList(listName, token) {
+  const config = STATUS_LIST_CONFIG[listName];
+  if (!config) {
+    return;
+  }
+
+  const targets = config
+    .getList()
+    .filter((item) => item.showRatings && item.tmdbId && item.ratingsLoading)
+    .map((item) => ({ tmdbId: item.tmdbId, mediaType: item.mediaType }));
+
+  if (!targets.length) {
+    return;
+  }
+
+  for (const media of targets) {
+    if (token !== ratingsRequestTokens[listName]) {
+      return;
+    }
+    try {
+      const response = await callBackground('FETCH_OVERSEERR_RATINGS', {
+        tmdbId: media.tmdbId,
+        mediaType: media.mediaType
+      });
+      if (token !== ratingsRequestTokens[listName]) {
+        return;
+      }
+      const normalizedRatings = normalizeCombinedRatings(response?.ratings);
+      applyMediaPatch(listName, media.tmdbId, {
+        ratingsLoading: false,
+        ratings: normalizedRatings,
+        ratingsError: ''
+      });
+    } catch (error) {
+      if (token !== ratingsRequestTokens[listName]) {
+        return;
+      }
+      applyMediaPatch(listName, media.tmdbId, {
+        ratingsLoading: false,
+        ratingsError: error.message || 'Ratings lookup failed.'
+      });
+      if (error.code === 'AUTH_REQUIRED') {
+        state.overseerrSessionReady = false;
+        state.overseerrSessionError =
+          error.message || 'Log into Overseerr in the opened tab, then retry.';
+        reflectSettingsState();
+        return;
+      }
+    }
+  }
+}
+
+function applyMediaPatch(listName, tmdbId, patch) {
   const config = STATUS_LIST_CONFIG[listName];
   if (!config) {
     return;
@@ -1030,11 +1215,76 @@ function normalizeOverseerrResult(result = {}) {
   };
 }
 
+function normalizeCombinedRatings(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const normalized = {};
+  const rt = normalizeRatingsEntry(payload.rt);
+  if (rt) {
+    normalized.rt = rt;
+  }
+  const imdb = normalizeRatingsEntry(payload.imdb);
+  if (imdb) {
+    normalized.imdb = imdb;
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function normalizeRatingsEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const normalized = {};
+  if (typeof entry.title === 'string' && entry.title.trim()) {
+    normalized.title = entry.title.trim();
+  }
+  const yearValue = Number.parseInt(entry.year, 10);
+  if (!Number.isNaN(yearValue)) {
+    normalized.year = yearValue;
+  }
+  if (typeof entry.url === 'string' && entry.url.trim()) {
+    normalized.url = entry.url.trim();
+  }
+  const criticsScore = coerceScore(entry.criticsScore);
+  if (criticsScore !== null) {
+    normalized.criticsScore = criticsScore;
+  }
+  const audienceScore = coerceScore(entry.audienceScore);
+  if (audienceScore !== null) {
+    normalized.audienceScore = audienceScore;
+  }
+  if (typeof entry.criticsRating === 'string' && entry.criticsRating.trim()) {
+    normalized.criticsRating = entry.criticsRating.trim();
+  }
+  if (typeof entry.audienceRating === 'string' && entry.audienceRating.trim()) {
+    normalized.audienceRating = entry.audienceRating.trim();
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function coerceScore(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function canUseOverseerrSearch() {
   return Boolean(state.settings.overseerrUrl && state.overseerrSessionReady);
 }
 
 function canCheckOverseerrStatus() {
+  return canUseOverseerrSearch();
+}
+
+function canFetchOverseerrRatings() {
   return canUseOverseerrSearch();
 }
 
@@ -1545,6 +1795,33 @@ function prepareStatusReadyList(list, canCheckStatus) {
       statusError: ''
     };
   });
+}
+
+function prepareRatingsReadyList(list, canFetchRatings) {
+  return list.map((item) => {
+    if (!item) {
+      return item;
+    }
+    if (!isOverseerrTrackableMedia(item.mediaType)) {
+      return { ...item, showRatings: false };
+    }
+    const hasRatings = hasRatingData(item.ratings);
+    const shouldFetch = Boolean(canFetchRatings && item.tmdbId && !hasRatings);
+    return {
+      ...item,
+      showRatings: true,
+      ratingsLoading: shouldFetch,
+      ratings: hasRatings ? item.ratings : null,
+      ratingsError: ''
+    };
+  });
+}
+
+function hasRatingData(ratings) {
+  if (!ratings || typeof ratings !== 'object') {
+    return false;
+  }
+  return Boolean(ratings.rt || ratings.imdb);
 }
 
 function formatAvailabilityStatus(value) {

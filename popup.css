@@ -315,6 +315,28 @@ input {
   color: #e2e8f0;
 }
 
+.media-ratings {
+  margin: 4px 0;
+  font-size: 0.72rem;
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.media-ratings span {
+  display: block;
+}
+
+.media-ratings.is-muted {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.media-ratings.is-error {
+  color: #fecaca;
+}
+
 .media-status {
   margin: 4px 0;
   font-size: 0.7rem;

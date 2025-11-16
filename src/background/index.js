@@ -13,6 +13,7 @@ import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
  * @typedef {import('../lib/types.js').OverseerrStatusPayload} OverseerrStatusPayload
  * @typedef {import('../lib/types.js').CheckOverseerrSessionPayload} CheckOverseerrSessionPayload
  * @typedef {import('../lib/types.js').CheckOverseerrStatusPayload} CheckOverseerrStatusPayload
+ * @typedef {import('../lib/types.js').OverseerrRatingsPayload} OverseerrRatingsPayload
  */
 
 const STORAGE_KEYS = CORE_SETTINGS_KEYS;
@@ -29,6 +30,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     OVERSEERR_SEARCH: handleOverseerrSearch,
     SEND_OVERSEERR_REQUEST: handleOverseerrRequest,
     FETCH_OVERSEERR_MEDIA_STATUS: handleOverseerrMediaStatus,
+    FETCH_OVERSEERR_RATINGS: handleOverseerrRatings,
     CHECK_OVERSEERR_SESSION: handleCheckOverseerrSession,
     CHECK_OVERSEERR_STATUS: handleCheckOverseerrStatus
   };
@@ -214,6 +216,52 @@ async function handleOverseerrMediaStatus({ tmdbId, mediaType }) {
 
   const payload = await response.json().catch(() => ({}));
   return deriveMediaInfoStatuses(payload?.mediaInfo);
+}
+
+/**
+ * Fetches combined ratings metadata from Overseerr for a TMDB id.
+ * @param {OverseerrRatingsPayload} param0
+ */
+async function handleOverseerrRatings({ tmdbId, mediaType }) {
+  if (!tmdbId) {
+    throw new Error('Missing TMDB id.');
+  }
+
+  const settings = await getSettings();
+  if (!settings.overseerrUrl) {
+    throw new Error('Add your Overseerr URL in the options page.');
+  }
+
+  const normalizedType = mediaType === 'tv' ? 'tv' : 'movie';
+  const endpoint =
+    normalizedType === 'tv'
+      ? `/api/v1/tv/${encodeURIComponent(tmdbId)}/ratingscombined`
+      : `/api/v1/movie/${encodeURIComponent(tmdbId)}/ratingscombined`;
+  const sanitizedBase = sanitizeBaseUrl(settings.overseerrUrl);
+  const { response, url } = await executeOverseerrRequest(
+    sanitizedBase,
+    endpoint,
+    {},
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
+  );
+
+  if (response.status === 404) {
+    return { ratings: null };
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error('Overseerr ratings lookup failed', {
+      endpoint: url,
+      status: response.status,
+      statusText: response.statusText,
+      responseBody: typeof text === 'string' ? text.slice(0, 500) : text
+    });
+    throw new Error(`Overseerr ratings error: ${response.status}`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  return { ratings: payload };
 }
 
 function deriveMediaInfoStatuses(mediaInfo) {
