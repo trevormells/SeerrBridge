@@ -1,0 +1,10 @@
+{
+  "name": "seerrbridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer tooling for the SeerrBridge Chrome extension",
+  "scripts": {
+    "sync:manifest-version": "node scripts/sync-manifest-version.js",
+    "version": "npm run sync:manifest-version && git add manifest.json"
+  }
+}

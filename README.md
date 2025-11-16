@@ -20,3 +20,14 @@ SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you'
 6. If detection fails, run a manual Overseerr search from the popup and request directly from the search results list.
 
 > Tip: the popup status banner will let you know if any required settings are missing. Use the options page to test your Overseerr connectivity whenever you update the server URL or after logging out of Overseerr.
+
+## Versioning & releases
+
+We follow [Semantic Versioning](https://semver.org/) and track user-visible changes in [`CHANGELOG.md`](CHANGELOG.md). Every tagged release should include an associated GitHub release so extension users have downloadable artifacts and clear release notes.
+
+1. Update the **Unreleased** section of `CHANGELOG.md` with the notes you plan to ship, then rename it to a dated section like `## [0.2.0] - 2025-12-01`.
+2. Run `npm version <patch|minor|major>` to bump the package version. The `version` lifecycle hook automatically mirrors that version into `manifest.json` and stages the manifest change so Git tags and Chrome metadata stay in sync.
+3. Push the commit and newly created Git tag: `git push origin main --follow-tags`.
+4. Create a GitHub release from that tag and paste in the matching section from the changelog. Attach packaged extension builds if desired.
+
+This process ensures the manifest version, Git metadata, and published changelog never drift.
