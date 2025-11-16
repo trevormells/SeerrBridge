@@ -58,6 +58,10 @@ if (fs.existsSync(testsDir)) {
   const testFiles = [];
   const collect = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (skipDirs.has(entry.name)) {
+        continue;
+      }
+
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         collect(full);
