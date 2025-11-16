@@ -47,6 +47,139 @@ const TEMPLATE_CLASSNAMES = Object.freeze({
   toggle: 'toggle'
 });
 
+const noop = () => {};
+
+/**
+ * Reads values from the settings form and enforces the configured limits.
+ * @param {HTMLFormElement & Record<string, HTMLInputElement>} form
+ * @param {{ descriptionLengthDefault?: number, maxDetectionsDefault?: number }} [overrides]
+ * @returns {SettingsPanelValues}
+ */
+export function readSettingsFormValues(form, overrides = {}) {
+  if (!form) {
+    throw new TypeError('A form reference is required to read values.');
+  }
+
+  const descriptionLengthDefault =
+    overrides.descriptionLengthDefault ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup;
+  const maxDetectionsDefault = overrides.maxDetectionsDefault ?? DETECTION_LIMITS.default;
+
+  return {
+    overseerrUrl: normalizeBaseUrl(form.overseerrUrl?.value || ''),
+    prefer4k: Boolean(form.prefer4k?.checked),
+    showWeakDetections: Boolean(form.showWeakDetections?.checked),
+    maxDetections: sanitizeDetectionLimit(form.maxDetections?.value, maxDetectionsDefault),
+    descriptionLength: sanitizeDescriptionLength(
+      form.descriptionLength?.value,
+      descriptionLengthDefault
+    )
+  };
+}
+
+/**
+ * Populates the settings form with the provided values.
+ * @param {HTMLFormElement & Record<string, HTMLInputElement>} form
+ * @param {SettingsPanelValues} [values]
+ * @param {{ descriptionLengthDefault?: number, maxDetectionsDefault?: number }} [overrides]
+ */
+export function writeSettingsFormValues(form, values = {}, overrides = {}) {
+  if (!form) {
+    throw new TypeError('A form reference is required to set values.');
+  }
+
+  const descriptionLengthDefault =
+    overrides.descriptionLengthDefault ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup;
+  const maxDetectionsDefault = overrides.maxDetectionsDefault ?? DETECTION_LIMITS.default;
+
+  form.overseerrUrl.value = values.overseerrUrl || '';
+  form.prefer4k.checked = Boolean(values.prefer4k);
+  form.showWeakDetections.checked = Boolean(values.showWeakDetections);
+  form.maxDetections.value = sanitizeDetectionLimit(
+    values.maxDetections ?? maxDetectionsDefault,
+    maxDetectionsDefault
+  );
+  form.descriptionLength.value = sanitizeDescriptionLength(
+    values.descriptionLength ?? descriptionLengthDefault,
+    descriptionLengthDefault
+  );
+}
+
+/**
+ * Executes the full "Test Overseerr" workflow shared by options/popup.
+ * @param {SettingsPanelValues} values
+ * @param {{
+ *   setStatus?: (message?: string, tone?: string) => void,
+ *   setTestRunning?: (running: boolean) => void,
+ *   onTestResult?: (result: SettingsPanelTestResult) => void,
+ *   callBackgroundImpl?: typeof callBackground
+ * }} [options]
+ * @returns {Promise<SettingsPanelTestResult>}
+ */
+export async function testOverseerrWorkflow(values = {}, options = {}) {
+  const setStatus = options.setStatus || noop;
+  const setTestRunning = options.setTestRunning || noop;
+  const onTestResult = options.onTestResult || noop;
+  const callBackgroundImpl = options.callBackgroundImpl || callBackground;
+  const versionLabelFallback = 'unknown version';
+
+  if (!values.overseerrUrl) {
+    const error = new Error('Missing Overseerr URL');
+    const result = { status: 'error', values, versionLabel: versionLabelFallback, error };
+    setStatus('Add your Overseerr URL first.', 'warning');
+    onTestResult(result);
+    return result;
+  }
+
+  setTestRunning(true);
+  setStatus('Checking Overseerr server status…');
+
+  let versionLabel = versionLabelFallback;
+  try {
+    const status = await callBackgroundImpl('CHECK_OVERSEERR_STATUS', {
+      overseerrUrl: values.overseerrUrl
+    });
+    versionLabel = status?.version ? `v${status.version}` : versionLabel;
+    setStatus(`Overseerr reachable (${versionLabel}). Checking session…`);
+  } catch (error) {
+    const result = { status: 'error', values, versionLabel, error };
+    setStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
+    onTestResult(result);
+    setTestRunning(false);
+    return result;
+  }
+
+  try {
+    await callBackgroundImpl('CHECK_OVERSEERR_SESSION', {
+      overseerrUrl: values.overseerrUrl,
+      promptLogin: true,
+      forceRefresh: true
+    });
+    const result = { status: 'success', values, versionLabel };
+    setStatus(`Overseerr ${versionLabel} reachable. Session authorized. Ready to request.`);
+    onTestResult(result);
+    return result;
+  } catch (error) {
+    if (error?.code === 'AUTH_REQUIRED') {
+      const result = { status: 'auth-required', values, versionLabel, error };
+      setStatus(
+        `Overseerr ${versionLabel} reachable, but login required. Log into Overseerr in the opened tab, then retry.`,
+        'warning'
+      );
+      onTestResult(result);
+      return result;
+    }
+    const result = { status: 'error', values, versionLabel, error };
+    setStatus(
+      `Overseerr ${versionLabel} reachable, but unable to verify session: ${error.message}`,
+      'error'
+    );
+    onTestResult(result);
+    return result;
+  } finally {
+    setTestRunning(false);
+  }
+}
+
 /**
  * Mounts a shared settings panel UI/logic bundle inside the provided root node.
  * @param {SettingsPanelOptions} options
@@ -114,58 +247,11 @@ export function createSettingsPanel(options) {
   };
   const handleTest = async () => {
     const values = readValues();
-    if (!values.overseerrUrl) {
-      setStatus('Add your Overseerr URL first.', 'warning');
-      options?.onTestResult?.({
-        status: 'error',
-        values,
-        versionLabel: 'unknown version',
-        error: new Error('Missing Overseerr URL')
-      });
-      return;
-    }
-    setTestRunning(true);
-    setStatus('Checking Overseerr server status…');
-    let versionLabel = 'unknown version';
-    try {
-      const status = await callBackground('CHECK_OVERSEERR_STATUS', {
-        overseerrUrl: values.overseerrUrl
-      });
-      versionLabel = status?.version ? `v${status.version}` : versionLabel;
-      setStatus(`Overseerr reachable (${versionLabel}). Checking session…`);
-    } catch (error) {
-      setStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
-      options?.onTestResult?.({ status: 'error', values, versionLabel, error });
-      setTestRunning(false);
-      return;
-    }
-
-    try {
-      await callBackground('CHECK_OVERSEERR_SESSION', {
-        overseerrUrl: values.overseerrUrl,
-        promptLogin: true,
-        forceRefresh: true
-      });
-      setStatus(`Overseerr ${versionLabel} reachable. Session authorized. Ready to request.`);
-      options?.onTestResult?.({ status: 'success', values, versionLabel });
-    } catch (error) {
-      if (error?.code === 'AUTH_REQUIRED') {
-        setStatus(
-          `Overseerr ${versionLabel} reachable, but login required. Log into Overseerr in the opened tab, then retry.`,
-          'warning'
-        );
-        options?.onTestResult?.({ status: 'auth-required', values, versionLabel, error });
-        setTestRunning(false);
-        return;
-      }
-      setStatus(
-        `Overseerr ${versionLabel} reachable, but unable to verify session: ${error.message}`,
-        'error'
-      );
-      options?.onTestResult?.({ status: 'error', values, versionLabel, error });
-    } finally {
-      setTestRunning(false);
-    }
+    await testOverseerrWorkflow(values, {
+      setStatus,
+      setTestRunning,
+      onTestResult: options?.onTestResult
+    });
   };
 
   form.addEventListener('submit', handleSubmit);
@@ -173,32 +259,14 @@ export function createSettingsPanel(options) {
   cleanupHandlers.push(() => form.removeEventListener('submit', handleSubmit));
   cleanupHandlers.push(() => testButton.removeEventListener('click', handleTest));
 
-  const readValues = () => {
-    return {
-      overseerrUrl: normalizeBaseUrl(form.overseerrUrl.value),
-      prefer4k: Boolean(form.prefer4k.checked),
-      showWeakDetections: Boolean(form.showWeakDetections.checked),
-      maxDetections: sanitizeDetectionLimit(form.maxDetections.value, maxDetectionsDefault),
-      descriptionLength: sanitizeDescriptionLength(
-        form.descriptionLength.value,
-        descriptionLengthDefault
-      )
-    };
-  };
+  const readValues = () =>
+    readSettingsFormValues(form, { descriptionLengthDefault, maxDetectionsDefault });
 
-  const setValues = (values = {}) => {
-    form.overseerrUrl.value = values.overseerrUrl || '';
-    form.prefer4k.checked = Boolean(values.prefer4k);
-    form.showWeakDetections.checked = Boolean(values.showWeakDetections);
-    form.maxDetections.value = sanitizeDetectionLimit(
-      values.maxDetections ?? maxDetectionsDefault,
+  const setValues = (values = {}) =>
+    writeSettingsFormValues(form, values, {
+      descriptionLengthDefault,
       maxDetectionsDefault
-    );
-    form.descriptionLength.value = sanitizeDescriptionLength(
-      values.descriptionLength ?? descriptionLengthDefault,
-      descriptionLengthDefault
-    );
-  };
+    });
 
   return {
     form,
