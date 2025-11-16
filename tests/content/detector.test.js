@@ -200,7 +200,7 @@ test('detectMedia flags list-like headings as weak detections', async () => {
   globalThis.document = documentStub;
 
   const detectorApi = await getDetectorApi();
-  const detections = detectorApi.detectMedia();
+  const detections = await detectorApi.detectMedia();
   assert.equal(detections.items.length, 0);
   assert.equal(detections.weak_detections.length, 1);
   assert.match(detections.weak_detections[0].title, /best movies/i);

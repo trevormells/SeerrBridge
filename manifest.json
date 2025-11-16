@@ -50,7 +50,13 @@
         "src/lib/settings.js",
         "src/lib/text.js",
         "src/lib/types.js",
-        "src/lib/url.js"
+        "src/lib/url.js",
+        "src/content/parsers/parserUtils.js",
+        "src/content/parsers/registry.js",
+        "src/content/parsers/jsonLdParser.js",
+        "src/content/parsers/openGraphParser.js",
+        "src/content/parsers/headingParser.js",
+        "src/content/parsers/imdbListParser.js"
       ],
       "matches": [
         "<all_urls>"
