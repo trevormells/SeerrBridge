@@ -82,4 +82,10 @@
  * @property {boolean} [forceRefresh]
  */
 
+/**
+ * Payload for verifying Overseerr server metadata.
+ * @typedef {Object} CheckOverseerrStatusPayload
+ * @property {string} [overseerrUrl]
+ */
+
 export {};

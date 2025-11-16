@@ -2,7 +2,8 @@ import { CORE_SETTINGS_KEYS, loadSettings } from '../lib/settings.js';
 import {
   executeOverseerrRequest,
   OverseerrAuthError,
-  logOverseerrFailure
+  logOverseerrFailure,
+  fetchOverseerrStatus
 } from '../lib/overseerr.js';
 import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
 
@@ -11,6 +12,7 @@ import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
  * @typedef {import('../lib/types.js').OverseerrSearchPayload} OverseerrSearchPayload
  * @typedef {import('../lib/types.js').OverseerrStatusPayload} OverseerrStatusPayload
  * @typedef {import('../lib/types.js').CheckOverseerrSessionPayload} CheckOverseerrSessionPayload
+ * @typedef {import('../lib/types.js').CheckOverseerrStatusPayload} CheckOverseerrStatusPayload
  */
 
 const STORAGE_KEYS = CORE_SETTINGS_KEYS;
@@ -27,7 +29,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     OVERSEERR_SEARCH: handleOverseerrSearch,
     SEND_OVERSEERR_REQUEST: handleOverseerrRequest,
     FETCH_OVERSEERR_MEDIA_STATUS: handleOverseerrMediaStatus,
-    CHECK_OVERSEERR_SESSION: handleCheckOverseerrSession
+    CHECK_OVERSEERR_SESSION: handleCheckOverseerrSession,
+    CHECK_OVERSEERR_STATUS: handleCheckOverseerrStatus
   };
 
   const handler = handlers[message.type];
@@ -235,6 +238,30 @@ function deriveMediaInfoStatuses(mediaInfo) {
 
 function getSettings() {
   return loadSettings(STORAGE_KEYS);
+}
+
+/**
+ * Validates the Overseerr URL by hitting the public status endpoint.
+ * @param {CheckOverseerrStatusPayload} param0
+ */
+async function handleCheckOverseerrStatus({ overseerrUrl } = {}) {
+  const base =
+    overseerrUrl && overseerrUrl.trim()
+      ? sanitizeBaseUrl(overseerrUrl)
+      : sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
+  if (!base) {
+    throw new Error('Add your Overseerr URL in the options page.');
+  }
+
+  const status = await fetchOverseerrStatus(base);
+  return {
+    baseUrl: base,
+    version: status.version,
+    commitTag: status.commitTag,
+    updateAvailable: status.updateAvailable,
+    commitsBehind: status.commitsBehind,
+    restartRequired: status.restartRequired
+  };
 }
 
 /**

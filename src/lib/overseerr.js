@@ -70,3 +70,52 @@ export function logOverseerrFailure(details) {
     responseBody: snippet
   });
 }
+
+/**
+ * Retrieves Overseerr server metadata from the public status endpoint.
+ * @param {string} baseUrl
+ */
+export async function fetchOverseerrStatus(baseUrl) {
+  const sanitizedBase = sanitizeBaseUrl(baseUrl);
+  if (!sanitizedBase) {
+    throw new Error('Add your Overseerr URL in the options page.');
+  }
+
+  const { response, url } = await executeOverseerrRequest(
+    sanitizedBase,
+    '/api/v1/status',
+    { credentials: 'omit' }
+  );
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    console.error('Overseerr status check failed', {
+      endpoint: url,
+      status: response.status,
+      statusText: response.statusText,
+      responseBody: typeof text === 'string' ? text.slice(0, 500) : text
+    });
+    throw new Error(`Overseerr status error: ${response.status}`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  const version = typeof payload?.version === 'string' ? payload.version : null;
+  if (!version) {
+    throw new Error('Unable to determine Overseerr version. Verify the URL and try again.');
+  }
+
+  const commitTag = typeof payload?.commitTag === 'string' ? payload.commitTag : null;
+  const commitsBehind = Number.isFinite(payload?.commitsBehind)
+    ? Number(payload.commitsBehind)
+    : null;
+
+  return {
+    version,
+    commitTag,
+    updateAvailable: Boolean(payload?.updateAvailable),
+    commitsBehind,
+    restartRequired: Boolean(payload?.restartRequired),
+    endpoint: url,
+    raw: payload
+  };
+}
