@@ -5,6 +5,8 @@
   "description": "Developer tooling for the SeerrBridge Chrome extension",
   "scripts": {
     "sync:manifest-version": "node scripts/sync-manifest-version.js",
+    "build": "node scripts/build-zip.js",
+    "test": "node scripts/run-tests.js",
     "version": "npm run sync:manifest-version && git add manifest.json"
   }
 }

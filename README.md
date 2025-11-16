@@ -25,9 +25,17 @@ SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you'
 
 We follow [Semantic Versioning](https://semver.org/) and track user-visible changes in [`CHANGELOG.md`](CHANGELOG.md). Every tagged release should include an associated GitHub release so extension users have downloadable artifacts and clear release notes.
 
-1. Update the **Unreleased** section of `CHANGELOG.md` with the notes you plan to ship, then rename it to a dated section like `## [0.2.0] - 2025-12-01`.
-2. Run `npm version <patch|minor|major>` to bump the package version. The `version` lifecycle hook automatically mirrors that version into `manifest.json` and stages the manifest change so Git tags and Chrome metadata stay in sync.
-3. Push the commit and newly created Git tag: `git push origin main --follow-tags`.
-4. Create a GitHub release from that tag and paste in the matching section from the changelog. Attach packaged extension builds if desired.
+### Release checklist
 
-This process ensures the manifest version, Git metadata, and published changelog never drift.
+1. **Update notes** – Move entries from the **Unreleased** section of `CHANGELOG.md` into a dated section like `## [0.2.0] - 2025-12-01`, keeping the Unreleased section ready for upcoming changes.
+2. **Run tests** – Execute `npm test` to run syntax checks over every JavaScript file. Fix any issues before continuing.
+3. **Bump the version** – Run `npm version <patch|minor|major>`. The npm lifecycle hook automatically keeps `manifest.json` in sync and creates a Git tag for the new version. Review the generated commit and tag before pushing.
+4. **Build the upload artifact** – Run `npm run build` to produce `dist/seerrbridge-<version>.zip`. This archive excludes development-only files so it can be uploaded directly to the Chrome Web Store.
+5. **Push commits & tag** – Push the branch and tag upstream with `git push origin main --follow-tags`.
+6. **Upload to the Chrome Web Store**
+   - Sign in to the Chrome Web Store Developer Dashboard.
+   - Choose the SeerrBridge item and click **Upload new package**.
+   - Select the ZIP produced in `dist/` and publish or submit for review as needed.
+7. **Draft the GitHub release** – Create a GitHub release from the pushed tag and paste in the matching section from the changelog. Attach the ZIP if you need downloadable artifacts outside the Web Store.
+
+Following this checklist keeps the manifest version, Git metadata, changelog, and store upload in sync for every release.
