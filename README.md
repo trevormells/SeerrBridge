@@ -10,6 +10,17 @@ SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you'
 - Background service worker that performs Overseerr lookups and requests so they keep working even when the popup is closed.
 - Options page with a quick Overseerr session check that opens a login tab when needed.
 
+### Popup architecture
+
+The popup entry point (`src/popup/index.js`) now composes smaller modules so maintenance is easier:
+
+- `src/popup/state.js` – stores the popup state tree, setup checklist flags, and async token counters shared across modules.
+- `src/popup/mediaUtils.js` – pure helpers for deduping detections, preparing status/rating fetch queues, and building request button states.
+- `src/popup/overseerrData.js` – data shapers that normalize Overseerr API responses and build consistent poster/rating payloads.
+- `src/popup/renderers.js` – DOM helpers that render media cards and use a configurable context for handling button actions.
+
+Import these helpers into new features instead of growing `index.js` so UI concerns, Overseerr calls, and state transitions stay isolated.
+
 ## References
 
 - Overseerr API docs – https://api-docs.overseerr.dev/#/ (primary source for endpoint contracts, required payloads, and auth behavior while building the extension)
