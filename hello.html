@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OverrBridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div id="view-main" class="view view-main">
+      <header class="header">
+        <div>
+          <h1>OverrBridge</h1>
+          <p class="subtitle">Spot media on this page and send Overseerr requests.</p>
+        </div>
+        <div class="header-actions">
+          <button
+            id="open-options"
+            class="secondary icon-button"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            &#9881;
+          </button>
+          <button
+            id="open-help"
+            class="secondary icon-button"
+            aria-label="Open help"
+            title="Help"
+          >
+            &#x2753;
+          </button>
+        </div>
+      </header>
+
+      <section class="status">
+        <span id="status-text">Loading settings…</span>
+        <button id="refresh-detections" class="secondary small">Rescan</button>
+      </section>
+
+      <section>
+        <h2>Detected on this page</h2>
+        <ul id="detected-list" class="media-list"></ul>
+        <p id="detected-empty" class="empty hidden">
+          Nothing detected yet. Try rescanning or run a manual search below.
+        </p>
+      </section>
+
+      <section id="weak-detections-section" class="hidden">
+        <h2>Weak detections</h2>
+        <ul id="weak-detections-list" class="media-list"></ul>
+        <p id="weak-detections-empty" class="empty hidden">
+          No weak detections yet. Low-confidence matches will appear here.
+        </p>
+      </section>
+
+      <section>
+        <h2>Manual search</h2>
+        <form id="search-form">
+          <input
+            id="search-input"
+            placeholder="Search Overseerr for a title"
+            autocomplete="off"
+            required
+          />
+          <button type="submit">Search</button>
+        </form>
+        <ul id="search-results" class="media-list"></ul>
+        <p id="search-empty" class="empty hidden">No results yet.</p>
+      </section>
+
+    </div>
+
+    <section id="view-settings" class="view panel hidden">
+      <div class="panel-header">
+        <button id="close-settings" class="secondary small" type="button">&#8592; Back</button>
+        <div>
+          <h2>Settings</h2>
+          <p class="subtitle">Store your Overseerr URL and preferences.</p>
+        </div>
+      </div>
+      <form id="inline-settings-form" class="settings-form">
+        <label for="overseerrUrl">Overseerr URL</label>
+        <input
+          id="overseerrUrl"
+          name="overseerrUrl"
+          placeholder="https://overseerr.example.com"
+          autocomplete="off"
+        />
+
+        <label class="toggle">
+          <input id="prefer4k" name="prefer4k" type="checkbox" />
+          Prefer 4K requests
+        </label>
+
+        <label class="toggle">
+          <input id="showWeakDetections" name="showWeakDetections" type="checkbox" />
+          Show weak detections (debug)
+        </label>
+
+        <label for="maxDetections">Maximum detections shown</label>
+        <input
+          id="maxDetections"
+          name="maxDetections"
+          type="number"
+          min="1"
+          max="100"
+          placeholder="Defaults to 10"
+        />
+
+        <label for="descriptionLength">Description display length (characters)</label>
+        <input
+          id="descriptionLength"
+          name="descriptionLength"
+          type="number"
+          min="10"
+          max="500"
+          placeholder="Defaults to 30"
+        />
+
+        <div class="panel-actions">
+          <button type="submit">Save</button>
+          <button type="button" id="inline-test-overseerr" class="secondary">Test Overseerr</button>
+        </div>
+      </form>
+      <p id="inline-settings-status" class="panel-status"></p>
+    </section>
+
+    <section id="view-help" class="view panel hidden">
+      <div class="panel-header">
+        <button id="close-help" class="secondary small" type="button">&#8592; Back</button>
+        <div>
+          <h2>Help &amp; resources</h2>
+          <p class="subtitle">Quick reference and useful links.</p>
+        </div>
+      </div>
+      <section>
+        <h3>Getting started</h3>
+        <p>
+          Save your Overseerr URL on the settings screen, sign in when prompted via “Test Overseerr,”
+          then use Rescan to re-run detection on the current page or run a manual search if nothing
+          obvious appears.
+        </p>
+      </section>
+      <section>
+        <h3>Helpful links</h3>
+        <ul class="help-links">
+          <li>
+            <a href="https://docs.overseerr.dev/" target="_blank" rel="noopener noreferrer"
+              >Overseerr documentation</a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/sct/overseerr/discussions" target="_blank" rel="noopener noreferrer"
+              >Community discussions for Overseerr</a
+            >
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h3>Still need assistance?</h3>
+        <p>
+          Open the extension popup to rescan, capture any errors, and share them when requesting
+          help via your preferred support channel.
+        </p>
+      </section>
+      <section class="helper">
+        <h3>Quick tips</h3>
+        <ul>
+          <li>Use the gear icon to store your Overseerr URL and preferences.</li>
+          <li>Match a title via Overseerr search before requesting it.</li>
+          <li>The Rescan button re-runs the detector on the active tab.</li>
+        </ul>
+      </section>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OverrBridge Settings</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+        padding: 24px;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.9rem;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #334155;
+        background: #0b1220;
+        color: #f8fafc;
+        margin-bottom: 16px;
+      }
+      .row {
+        margin-bottom: 12px;
+      }
+      button {
+        background: #0891b2;
+        color: #f0f9ff;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+        cursor: pointer;
+        margin-right: 8px;
+      }
+      button.secondary {
+        background: transparent;
+        border: 1px solid #334155;
+      }
+      .status {
+        margin-top: 16px;
+        min-height: 20px;
+        font-size: 0.9rem;
+      }
+      .status[data-tone='warning'] {
+        color: #fde047;
+      }
+      .status[data-tone='error'] {
+        color: #fecaca;
+      }
+      .grid {
+        max-width: 520px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid">
+      <h1>OverrBridge</h1>
+      <p>Store your Overseerr URL and preferences. These are saved locally via chrome.storage.</p>
+      <form id="settings-form">
+        <div class="row">
+          <label for="overseerrUrl">Overseerr URL</label>
+          <input
+            id="overseerrUrl"
+            name="overseerrUrl"
+            placeholder="https://overseerr.example.com"
+            autocomplete="off"
+          />
+        </div>
+        <label class="toggle">
+          <input id="prefer4k" type="checkbox" />
+          Prefer 4K requests
+        </label>
+        <label class="toggle">
+          <input id="showWeakDetections" name="showWeakDetections" type="checkbox" />
+          Show weak detections (debug)
+        </label>
+        <div class="row">
+          <label for="maxDetections">Maximum detections shown</label>
+          <input
+            id="maxDetections"
+            name="maxDetections"
+            type="number"
+            min="1"
+            max="100"
+            placeholder="Defaults to 10"
+          />
+        </div>
+        <div class="row">
+          <label for="descriptionLength">Description display length (characters)</label>
+          <input
+            id="descriptionLength"
+            name="descriptionLength"
+            type="number"
+            min="10"
+            max="500"
+            placeholder="Defaults to 30"
+          />
+        </div>
+        <div class="row">
+          <button type="submit">Save</button>
+          <button type="button" id="test-overseerr" class="secondary">Test Overseerr</button>
+        </div>
+        <p class="status" id="options-status"></p>
+      </form>
+    </div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "name": "OverrBridge",
+  "description": "Detect media on the current page, enrich it with metadata, and send Overseerr requests from the toolbar popup.",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "hello.html",
+    "default_icon": {
+      "16": "assets/logo1_t.png",
+      "48": "assets/logo1_t.png",
+      "128": "assets/logo1_t.png"
+    },
+    "default_title": "OverrBridge"
+  },
+  "icons": {
+    "16": "assets/logo1_t.png",
+    "48": "assets/logo1_t.png",
+    "128": "assets/logo1_t.png"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "detector.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
