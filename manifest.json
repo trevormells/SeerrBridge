@@ -7,10 +7,17 @@
     "activeTab",
     "tabs",
     "scripting",
-    "storage"
+    "storage",
+    "declarativeContent"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "*://*.imdb.com/*",
+    "*://*.themoviedb.org/*",
+    "*://*.rottentomatoes.com/*",
+    "*://*.letterboxd.com/*",
+    "*://*.metacritic.com/*",
+    "*://*.trakt.tv/*",
+    "*://*.youtube.com/*"
   ],
   "background": {
     "service_worker": "src/background/index.js",
@@ -31,17 +38,6 @@
     "128": "assets/logo1_t.png"
   },
   "options_page": "options.html",
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "src/content/detector.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": [
@@ -55,7 +51,13 @@
         "src/lib/url.js"
       ],
       "matches": [
-        "<all_urls>"
+        "*://*.imdb.com/*",
+        "*://*.themoviedb.org/*",
+        "*://*.rottentomatoes.com/*",
+        "*://*.letterboxd.com/*",
+        "*://*.metacritic.com/*",
+        "*://*.trakt.tv/*",
+        "*://*.youtube.com/*"
       ]
     }
   ]

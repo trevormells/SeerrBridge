@@ -20,6 +20,26 @@ const STORAGE_KEYS = CORE_SETTINGS_KEYS;
 const SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const sessionCache = new Map();
 const pendingLoginTabs = new Map();
+const DETECTOR_SCRIPT_PATH = 'src/content/detector.js';
+const DETECTOR_SCHEMES = ['https', 'http'];
+const DETECTOR_SITES = [
+  { id: 'imdb', pageUrl: { hostSuffix: 'imdb.com' } },
+  { id: 'tmdb', pageUrl: { hostSuffix: 'themoviedb.org' } },
+  { id: 'rottentomatoes', pageUrl: { hostSuffix: 'rottentomatoes.com' } },
+  { id: 'letterboxd', pageUrl: { hostSuffix: 'letterboxd.com' } },
+  { id: 'metacritic', pageUrl: { hostSuffix: 'metacritic.com' } },
+  { id: 'trakt', pageUrl: { hostSuffix: 'trakt.tv' } },
+  { id: 'youtube', pageUrl: { hostSuffix: 'youtube.com' } }
+];
+const METADATA_SELECTORS = [
+  { id: 'jsonld', selector: "script[type='application/ld+json']" },
+  { id: 'ogtitle', selector: "meta[property='og:title']" }
+];
+
+registerDetectorContentRules();
+chrome.runtime.onInstalled.addListener(() => {
+  registerDetectorContentRules();
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message?.type) {
@@ -52,6 +72,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return true;
 });
+
+function registerDetectorContentRules() {
+  if (!chrome?.declarativeContent?.onPageChanged) {
+    return;
+  }
+
+  const rules = [];
+  DETECTOR_SITES.forEach((site) => {
+    METADATA_SELECTORS.forEach((selector) => {
+      rules.push({
+        id: `detector-${site.id}-${selector.id}`,
+        conditions: [
+          new chrome.declarativeContent.PageStateMatcher({
+            pageUrl: { schemes: DETECTOR_SCHEMES, ...site.pageUrl },
+            css: [selector.selector]
+          })
+        ],
+        actions: [
+          new chrome.declarativeContent.RequestContentScript({
+            js: [DETECTOR_SCRIPT_PATH]
+          })
+        ]
+      });
+    });
+  });
+
+  chrome.declarativeContent.onPageChanged.removeRules(undefined, () => {
+    if (!rules.length) {
+      return;
+    }
+    chrome.declarativeContent.onPageChanged.addRules(rules, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to register detector rules', chrome.runtime.lastError);
+      }
+    });
+  });
+}
 
 /**
  * Handles popup search requests by proxying to the Overseerr API.

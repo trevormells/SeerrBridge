@@ -10,6 +10,27 @@ SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you'
 - Background service worker that performs Overseerr lookups and requests so they keep working even when the popup is closed.
 - Options page with a quick Overseerr session check that opens a login tab when needed.
 
+## Site coverage & detector injection rules
+
+To keep permissions tight we only inject the detector on sites that routinely expose the structured metadata we parse:
+
+- `imdb.com`
+- `themoviedb.org`
+- `rottentomatoes.com`
+- `letterboxd.com`
+- `metacritic.com`
+- `trakt.tv`
+- `youtube.com`
+
+These domains were chosen because they consistently embed either JSON-LD or Open Graph tags for individual media entries, which lets the detector provide useful matches without scraping arbitrary pages. The background service worker now registers [Declarative Content](https://developer.chrome.com/docs/extensions/reference/declarativeContent) rules so the detector script only loads when one of those metadata selectors is present. This combination keeps the requested host permissions narrow and avoids touching unrelated pages.
+
+When adding a new provider:
+
+1. Append its wildcard host to `host_permissions` and to the `web_accessible_resources.matches` list in `manifest.json`.
+2. Extend `DETECTOR_SITES` in `src/background/index.js` with the appropriate `hostSuffix` (or `hostEquals`) entry so the declarative rule knows about it.
+3. Update this section of the README with a short explanation so future reviews can validate why the domain is needed.
+4. Verify that the site exposes either JSON-LD or Open Graph metadata so the existing selectors (`script[type="application/ld+json"]` or `meta[property="og:title"]`) will trigger the injection. If it uses different markup, add a matching selector to `METADATA_SELECTORS` alongside the new host.
+
 ## References
 
 - Overseerr API docs – https://api-docs.overseerr.dev/#/ (primary source for endpoint contracts, required payloads, and auth behavior while building the extension)
