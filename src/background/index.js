@@ -261,26 +261,6 @@ async function handleCheckOverseerrSession({
   return { authenticated: true };
 }
 
-function logOverseerrFailure(details) {
-  const snippet =
-    typeof details.responseBody === 'string'
-      ? details.responseBody.slice(0, 500)
-      : details.responseBody;
-
-  console.error('Overseerr request failed', {
-    endpoint: details.url,
-    status: details.status,
-    statusText: details.statusText,
-    requestBody: {
-      mediaType: details.body?.mediaType,
-      mediaId: details.body?.mediaId,
-      is4k: details.body?.is4k,
-      seasons: details.body?.seasons
-    },
-    responseBody: snippet
-  });
-}
-
 async function ensureOverseerrSession(baseUrl, options = {}) {
   const sanitized = sanitizeBaseUrl(baseUrl);
   const cached = sessionCache.get(sanitized);

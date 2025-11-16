@@ -355,14 +355,17 @@ async function refreshDetectedMedia() {
   setStatus('Scanning the active tab…');
   elements.refreshButton.disabled = true;
 
+  let activeTab = null;
   try {
     await ensureOverseerrSession();
-    const tab = await getActiveTab();
-    if (!tab?.id) {
-      throw new Error('No active tab detected.');
+    activeTab = await getActiveTab();
+    if (!activeTab?.id) {
+      const noTabError = new Error('No active tab detected.');
+      noTabError.code = 'TAB_UNAVAILABLE';
+      throw noTabError;
     }
 
-    const response = await sendMessageToTab(tab.id, { type: 'DETECT_MEDIA' });
+    const response = await sendMessageToTab(activeTab.id, { type: 'DETECT_MEDIA' });
     const candidates = response?.items || [];
     const weakCandidates = response?.weak_detections || [];
     state.detected = dedupeMedia(await decorateCandidates(candidates));
@@ -396,8 +399,19 @@ async function refreshDetectedMedia() {
       setStatus('Detection complete.');
     }
   } catch (error) {
-    console.error(error);
-    setStatus(error.message || 'Detection failed.', 'error');
+    console.error('refreshDetectedMedia failed', {
+      error,
+      tab: activeTab
+        ? {
+            id: activeTab.id,
+            url: activeTab.url,
+            discarded: activeTab.discarded
+          }
+        : null
+    });
+    const friendlyMessage =
+      formatDetectionError(error, activeTab) || error?.message || 'Detection failed.';
+    setStatus(friendlyMessage, 'error');
   } finally {
     elements.refreshButton.disabled = false;
   }
@@ -1012,6 +1026,49 @@ function setStatus(message, tone = 'info') {
   }
 }
 
+function formatDetectionError(error, tab = null) {
+  if (!error) {
+    return '';
+  }
+
+  if (error.code === 'TAB_UNAVAILABLE') {
+    return 'No active tab detected. Focus the page you want to scan, then press Rescan.';
+  }
+
+  if (error.code === 'CONTENT_SCRIPT_UNAVAILABLE') {
+    if (isRestrictedTabUrl(tab?.url)) {
+      return 'Chrome blocks scanning on this page (browser UI or Web Store). Switch to a regular site and try again.';
+    }
+    return 'The scanner was not running on this tab. Reload the page, then press Rescan.';
+  }
+
+  if (error.code === 'SCRIPT_INJECTION_FAILED') {
+    if (isRestrictedTabUrl(tab?.url)) {
+      return 'Chrome prevented SeerrBridge from loading on this page. Browser pages, PDFs, and the Web Store cannot be scanned.';
+    }
+    return error.message || 'Chrome blocked the detector from loading on this page.';
+  }
+
+  return '';
+}
+
+function isRestrictedTabUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  const normalized = url.toLowerCase();
+  return (
+    normalized.startsWith('chrome://') ||
+    normalized.startsWith('edge://') ||
+    normalized.startsWith('about:') ||
+    normalized.startsWith('view-source:') ||
+    normalized.startsWith('devtools://') ||
+    normalized.startsWith('chrome-extension://') ||
+    normalized.startsWith('moz-extension://') ||
+    normalized.startsWith('https://chrome.google.com/webstore')
+  );
+}
+
 function getActiveTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -1026,16 +1083,102 @@ function getActiveTab() {
  * @param {{type: string}} payload
  * @returns {Promise<DetectionResponse>}
  */
-function sendMessageToTab(tabId, payload) {
+async function sendMessageToTab(tabId, payload) {
+  try {
+    return await sendRuntimeMessage(tabId, payload);
+  } catch (error) {
+    if (!isMissingReceiverError(error)) {
+      throw buildContentScriptError(error);
+    }
+
+    if (!chrome?.scripting?.executeScript) {
+      throw buildContentScriptError(error);
+    }
+
+    console.warn('SeerrBridge detector not found in tab. Injecting content script…', {
+      tabId
+    });
+    await injectDetectorContentScript(tabId);
+    return sendRuntimeMessageWithRetry(tabId, payload);
+  }
+}
+
+async function sendRuntimeMessageWithRetry(tabId, payload, attempts = 4, delayMs = 100) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await sendRuntimeMessage(tabId, payload);
+    } catch (error) {
+      lastError = error;
+      if (!isMissingReceiverError(error)) {
+        throw buildContentScriptError(error);
+      }
+
+      const backoff = delayMs * (attempt + 1);
+      await delay(backoff);
+    }
+  }
+
+  throw buildContentScriptError(lastError);
+}
+
+function sendRuntimeMessage(tabId, payload) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, payload, (response) => {
       if (chrome.runtime.lastError) {
         reject(chrome.runtime.lastError);
-      } else {
-        resolve(response);
+        return;
       }
+      resolve(response);
     });
   });
+}
+
+function injectDetectorContentScript(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        files: ['src/content/detector.js']
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          const message =
+            chrome.runtime.lastError.message ||
+            'Chrome blocked the detector from loading on this page.';
+          const scriptError = new Error(message);
+          scriptError.code = 'SCRIPT_INJECTION_FAILED';
+          reject(scriptError);
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+}
+
+function isMissingReceiverError(error) {
+  return Boolean(error?.message && error.message.includes('Receiving end does not exist'));
+}
+
+function buildContentScriptError(error) {
+  if (isMissingReceiverError(error)) {
+    const friendlyError = new Error(
+      'Unable to reach SeerrBridge on this tab. Reload the page and try “Scan” again.'
+    );
+    friendlyError.code = 'CONTENT_SCRIPT_UNAVAILABLE';
+    friendlyError.debug = error?.message;
+    return friendlyError;
+  }
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(error?.message || 'Failed to reach SeerrBridge on this page.');
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function promoteResolvedWeakDetections() {

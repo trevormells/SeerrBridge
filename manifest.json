@@ -41,5 +41,22 @@
       ],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/lib/config.js",
+        "src/lib/overseerr.js",
+        "src/lib/runtime.js",
+        "src/lib/sanitizers.js",
+        "src/lib/settings.js",
+        "src/lib/text.js",
+        "src/lib/types.js",
+        "src/lib/url.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }
