@@ -21,37 +21,52 @@ const SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const sessionCache = new Map();
 const pendingLoginTabs = new Map();
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message?.type) {
-    return;
-  }
+const runtimeHandlers = {
+  OVERSEERR_SEARCH: handleOverseerrSearch,
+  SEND_OVERSEERR_REQUEST: handleOverseerrRequest,
+  FETCH_OVERSEERR_MEDIA_STATUS: handleOverseerrMediaStatus,
+  FETCH_OVERSEERR_RATINGS: handleOverseerrRatings,
+  CHECK_OVERSEERR_SESSION: handleCheckOverseerrSession,
+  CHECK_OVERSEERR_STATUS: handleCheckOverseerrStatus
+};
 
-  const handlers = {
-    OVERSEERR_SEARCH: handleOverseerrSearch,
-    SEND_OVERSEERR_REQUEST: handleOverseerrRequest,
-    FETCH_OVERSEERR_MEDIA_STATUS: handleOverseerrMediaStatus,
-    FETCH_OVERSEERR_RATINGS: handleOverseerrRatings,
-    CHECK_OVERSEERR_SESSION: handleCheckOverseerrSession,
-    CHECK_OVERSEERR_STATUS: handleCheckOverseerrStatus
+export function createRuntimeMessageListener(handlers = runtimeHandlers) {
+  return (message, sender, sendResponse) => {
+    if (!message?.type) {
+      return;
+    }
+
+    const handler = handlers[message.type];
+    if (!handler) {
+      return;
+    }
+
+    Promise.resolve()
+      .then(() => handler(message.payload || {}))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => {
+        console.error('Background handler failed', {
+          type: message.type,
+          error
+        });
+
+        const payload = { ok: false, error: error?.message || 'Unknown error' };
+        if (error instanceof OverseerrAuthError) {
+          payload.code = error.code;
+        }
+        sendResponse(payload);
+      });
+
+    return true;
   };
+}
 
-  const handler = handlers[message.type];
-  if (!handler) {
-    return;
-  }
+export const runtimeMessageListener = createRuntimeMessageListener();
 
-  handler(message.payload || {})
-    .then((data) => sendResponse({ ok: true, data }))
-    .catch((error) => {
-      const payload = { ok: false, error: error.message || 'Unknown error' };
-      if (error instanceof OverseerrAuthError) {
-        payload.code = error.code;
-      }
-      sendResponse(payload);
-    });
-
-  return true;
-});
+const hasChrome = typeof chrome !== 'undefined';
+if (hasChrome && chrome?.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener(runtimeMessageListener);
+}
 
 /**
  * Handles popup search requests by proxying to the Overseerr API.
@@ -438,7 +453,7 @@ function updateTab(tabId, options) {
   });
 }
 
-if (chrome?.tabs?.onRemoved) {
+if (hasChrome && chrome?.tabs?.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     for (const [base, trackedId] of pendingLoginTabs.entries()) {
       if (trackedId === tabId) {
