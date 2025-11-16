@@ -4,6 +4,7 @@ import {
   DETECTION_LIMITS,
   REQUEST_STATUS_LABELS
 } from '../lib/config.js';
+import { buildBatchedEnrichmentStatus } from '../lib/detectionStatus.js';
 import { callBackground } from '../lib/runtime.js';
 import { sanitizeDescriptionLength, sanitizeDetectionLimit } from '../lib/sanitizers.js';
 import { loadSettings, saveSettings } from '../lib/settings.js';
@@ -58,6 +59,8 @@ const ratingsRequestTokens = {
   weak: 0,
   search: 0
 };
+
+const OVERSEERR_SEARCH_BATCH_SIZE = 4;
 
 const elements = {
   statusBar: document.querySelector('.status'),
@@ -373,8 +376,25 @@ async function refreshDetectedMedia() {
     const response = await sendMessageToTab(tab.id, { type: 'DETECT_MEDIA' });
     const candidates = response?.items || [];
     const weakCandidates = response?.weak_detections || [];
-    state.detected = dedupeMedia(await decorateCandidates(candidates));
-    state.weakDetections = dedupeMedia(await decorateCandidates(weakCandidates));
+    const detectionLimit = sanitizeDetectionLimit(
+      state.settings.maxDetections,
+      DETECTION_LIMITS.default
+    );
+    const totalDetections = candidates.length + weakCandidates.length;
+    if (totalDetections) {
+      const enrichmentStatus = buildBatchedEnrichmentStatus({
+        totalCandidates: totalDetections,
+        limit: detectionLimit,
+        batchSize: OVERSEERR_SEARCH_BATCH_SIZE
+      });
+      if (enrichmentStatus) {
+        setStatus(enrichmentStatus);
+      }
+    }
+    state.detected = dedupeMedia(await decorateCandidates(candidates, detectionLimit));
+    state.weakDetections = dedupeMedia(
+      await decorateCandidates(weakCandidates, detectionLimit)
+    );
     promoteResolvedWeakDetections();
     const canCheckStatus = canCheckOverseerrStatus();
     const canFetchRatings = canFetchOverseerrRatings();
@@ -429,20 +449,26 @@ async function refreshDetectedMedia() {
  * @param {DetectedMediaCandidate[]} candidates
  * @returns {Promise<EnrichedMediaItem[]>}
  */
-async function decorateCandidates(candidates) {
+async function decorateCandidates(candidates, limitOverride) {
   if (!candidates.length) {
     return [];
   }
 
-  const enriched = [];
-  const limit = sanitizeDetectionLimit(state.settings.maxDetections, DETECTION_LIMITS.default);
-  let canUseMetadata = canUseOverseerrSearch();
+  const limit = sanitizeDetectionLimit(
+    typeof limitOverride === 'number' ? limitOverride : state.settings.maxDetections,
+    DETECTION_LIMITS.default
+  );
+  const limitedCandidates = candidates.slice(0, limit);
 
-  for (let i = 0; i < candidates.length; i += 1) {
-    const candidate = candidates[i];
+  const lookupPlan = limitedCandidates.map((candidate) => {
     const normalizedCandidateTitle = normalize(candidate.title || '');
-    const { coreTitle, year: parsedCandidateYear } = extractTitleAndYear(candidate.title || '');
+    const { coreTitle, year: parsedCandidateYear } = extractTitleAndYear(
+      candidate.title || ''
+    );
     const effectiveQuery = coreTitle || normalizedCandidateTitle || candidate.title || '';
+    const preferredYear = candidate.releaseYear || parsedCandidateYear;
+    const numericYear = Number.parseInt(preferredYear, 10);
+    const searchYear = Number.isNaN(numericYear) ? null : numericYear;
     const base = {
       title: candidate.title,
       releaseYear: candidate.releaseYear || '',
@@ -454,46 +480,78 @@ async function decorateCandidates(candidates) {
       rating: null
     };
 
-    if (canUseMetadata && i < limit && effectiveQuery) {
-      try {
-        const searchPayload = {
-          query: effectiveQuery,
-          page: 1
-        };
-        const preferredYear = candidate.releaseYear || parsedCandidateYear;
-        const numericYear = parseInt(preferredYear, 10);
-        if (!Number.isNaN(numericYear)) {
-          searchPayload.year = numericYear;
-        }
-        const search = await callBackground('OVERSEERR_SEARCH', searchPayload);
-        const match = selectBestOverseerrMatch(search?.results, candidate.mediaType);
-        if (match) {
-          const normalizedMatch = normalizeOverseerrResult(match);
-          enriched.push({
-            ...base,
-            title: normalizedMatch.title || base.title,
-            releaseYear: normalizedMatch.releaseYear || base.releaseYear,
-            overview: normalizedMatch.overview || base.overview,
-            poster: normalizedMatch.poster || base.poster,
-            tmdbId: normalizedMatch.tmdbId,
-            rating: normalizedMatch.rating,
-            mediaType: normalizedMatch.mediaType || base.mediaType,
-            source: normalizedMatch.source,
-            availabilityStatus:
-              normalizedMatch.availabilityStatus ?? base.availabilityStatus ?? null,
-            requestStatus: normalizedMatch.requestStatus ?? base.requestStatus ?? null
-          });
-          continue;
-        }
-      } catch (error) {
-        console.warn('Overseerr lookup failed', error);
-        if (handleOverseerrAuthFailure(error)) {
-          canUseMetadata = false;
-        }
-      }
+    return {
+      candidate,
+      base,
+      effectiveQuery,
+      searchYear
+    };
+  });
+
+  const enriched = lookupPlan.map((entry) => entry.base);
+  let canUseMetadata = canUseOverseerrSearch();
+
+  if (!canUseMetadata || !lookupPlan.length) {
+    return enriched;
+  }
+
+  const lookupTasks = lookupPlan.map((entry, index) => async () => {
+    if (!canUseMetadata || !entry.effectiveQuery) {
+      return null;
     }
 
-    enriched.push(base);
+    const searchPayload = {
+      query: entry.effectiveQuery,
+      page: 1
+    };
+    if (entry.searchYear !== null) {
+      searchPayload.year = entry.searchYear;
+    }
+
+    try {
+      const search = await callBackground('OVERSEERR_SEARCH', searchPayload);
+      const match = selectBestOverseerrMatch(search?.results, entry.candidate.mediaType);
+      if (!match) {
+        return null;
+      }
+      const normalizedMatch = normalizeOverseerrResult(match);
+      enriched[index] = {
+        ...entry.base,
+        title: normalizedMatch.title || entry.base.title,
+        releaseYear: normalizedMatch.releaseYear || entry.base.releaseYear,
+        overview: normalizedMatch.overview || entry.base.overview,
+        poster: normalizedMatch.poster || entry.base.poster,
+        tmdbId: normalizedMatch.tmdbId,
+        rating: normalizedMatch.rating,
+        mediaType: normalizedMatch.mediaType || entry.base.mediaType,
+        source: normalizedMatch.source,
+        availabilityStatus:
+          normalizedMatch.availabilityStatus ?? entry.base.availabilityStatus ?? null,
+        requestStatus:
+          normalizedMatch.requestStatus ?? entry.base.requestStatus ?? null
+      };
+      return true;
+    } catch (error) {
+      console.warn('Overseerr lookup failed', error);
+      if (handleOverseerrAuthFailure(error)) {
+        canUseMetadata = false;
+      }
+      return null;
+    }
+  });
+
+  for (
+    let i = 0;
+    i < lookupTasks.length && canUseMetadata;
+    i += OVERSEERR_SEARCH_BATCH_SIZE
+  ) {
+    const batch = lookupTasks
+      .slice(i, i + OVERSEERR_SEARCH_BATCH_SIZE)
+      .map((task) => task());
+    await Promise.allSettled(batch);
+    if (!canUseMetadata) {
+      break;
+    }
   }
 
   return enriched;
