@@ -25,3 +25,36 @@ jobs:
 
       - name: Run npm test
         run: npm test
+
+  build-and-screenshots:
+    name: Build release and capture screenshots
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build release and generate screenshots
+        env:
+          SCREENSHOT_BROWSER: google-chrome
+        run: npm run build
+
+      - name: Locate screenshot directory
+        id: screenshot_dir
+        run: echo "dir=release/artifacts/$(node -p \"JSON.parse(require('fs').readFileSync('package.json','utf8')).version\")/screenshots" >> "$GITHUB_OUTPUT"
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ steps.screenshot_dir.outputs.dir }}
