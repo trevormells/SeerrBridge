@@ -26,6 +26,94 @@ body {
   margin: 0 0 6px;
 }
 
+.setup-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.setup-card {
+  background: #111c30;
+  border: 1px solid #1e2a44;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.setup-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.setup-card-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.setup-status-pill {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: #1d4ed8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.setup-card[data-status='pending'] {
+  border-color: #fbbf24;
+}
+
+.setup-card[data-status='pending'] .setup-status-pill {
+  background: #a16207;
+}
+
+.setup-card[data-status='success'] {
+  border-color: #16a34a;
+}
+
+.setup-card[data-status='success'] .setup-status-pill {
+  background: #15803d;
+}
+
+.setup-card[data-status='error'] {
+  border-color: #dc2626;
+}
+
+.setup-card[data-status='error'] .setup-status-pill {
+  background: #b91c1c;
+}
+
+.setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.setup-form button {
+  width: 100%;
+}
+
+.setup-help {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+  color: #cbd5f5;
+}
+
+.setup-help li {
+  margin-bottom: 4px;
+}
+
 h1,
 h2 {
   margin: 0 0 8px;

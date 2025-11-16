@@ -6,6 +6,68 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
+    <section id="view-setup" class="view panel hidden">
+      <div class="setup-header">
+        <div>
+          <h1>Finish setting up SeerrBridge</h1>
+          <p class="subtitle">
+            We’ll run three quick checks to connect to your Overseerr server.
+          </p>
+        </div>
+        <button id="setup-retry" class="secondary small" type="button">Retry checks</button>
+      </div>
+
+      <div id="setup-card-url" class="setup-card" data-status="idle">
+        <div class="setup-card-header">
+          <div>
+            <h2>1. Save your Overseerr URL</h2>
+            <p class="setup-card-description">
+              Paste the base URL to your Overseerr instance so we know where to connect.
+            </p>
+          </div>
+          <span id="setup-url-status" class="setup-status-pill">Waiting</span>
+        </div>
+        <p id="setup-url-message">Add your Overseerr URL to get started.</p>
+        <form id="setup-url-form" class="setup-form">
+          <input
+            id="setup-overseerr-url"
+            placeholder="https://overseerr.example.com"
+            autocomplete="off"
+          />
+          <button type="submit">Save &amp; test</button>
+        </form>
+      </div>
+
+      <div id="setup-card-reachability" class="setup-card" data-status="idle">
+        <div class="setup-card-header">
+          <div>
+            <h2>2. Ping Overseerr</h2>
+            <p class="setup-card-description">Confirm the URL is valid and the server responds.</p>
+          </div>
+          <span id="setup-reachability-status" class="setup-status-pill">Waiting</span>
+        </div>
+        <p id="setup-reachability-message">
+          Once a URL is saved we’ll try to reach Overseerr and share what we find.
+        </p>
+      </div>
+
+      <div id="setup-card-session" class="setup-card" data-status="idle">
+        <div class="setup-card-header">
+          <div>
+            <h2>3. Authorize your session</h2>
+            <p class="setup-card-description">
+              We need a signed-in Overseerr session before we can send requests.
+            </p>
+          </div>
+          <span id="setup-session-status" class="setup-status-pill">Waiting</span>
+        </div>
+        <p id="setup-session-message">
+          After Overseerr is reachable we’ll verify your account and share next steps here.
+        </p>
+        <ol id="setup-session-steps" class="setup-help hidden"></ol>
+      </div>
+    </section>
+
     <div id="view-main" class="view view-main">
       <header class="header">
         <div>

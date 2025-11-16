@@ -37,6 +37,13 @@ const state = {
   overseerrSessionError: ''
 };
 
+const setupState = {
+  visible: false,
+  running: false
+};
+
+let activeView = 'main';
+
 const statusRequestTokens = {
   detected: 0,
   weak: 0,
@@ -65,7 +72,21 @@ const elements = {
   closeHelp: document.getElementById('close-help'),
   settingsForm: document.getElementById('inline-settings-form'),
   settingsStatus: document.getElementById('inline-settings-status'),
-  testOverseerr: document.getElementById('inline-test-overseerr')
+  testOverseerr: document.getElementById('inline-test-overseerr'),
+  setupView: document.getElementById('view-setup'),
+  setupUrlCard: document.getElementById('setup-card-url'),
+  setupUrlStatus: document.getElementById('setup-url-status'),
+  setupUrlMessage: document.getElementById('setup-url-message'),
+  setupUrlForm: document.getElementById('setup-url-form'),
+  setupUrlInput: document.getElementById('setup-overseerr-url'),
+  setupReachabilityCard: document.getElementById('setup-card-reachability'),
+  setupReachabilityStatus: document.getElementById('setup-reachability-status'),
+  setupReachabilityMessage: document.getElementById('setup-reachability-message'),
+  setupSessionCard: document.getElementById('setup-card-session'),
+  setupSessionStatus: document.getElementById('setup-session-status'),
+  setupSessionMessage: document.getElementById('setup-session-message'),
+  setupSessionSteps: document.getElementById('setup-session-steps'),
+  setupRetryButton: document.getElementById('setup-retry')
 };
 
 const STATUS_LIST_CONFIG = {
@@ -103,7 +124,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 
   let mutated = false;
-  let needsSessionRefresh = false;
+  let needsSetupRefresh = false;
   Object.keys(changes).forEach((key) => {
     if (key in state.settings) {
       if (key === 'maxDetections') {
@@ -123,7 +144,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       if (key === 'overseerrUrl') {
         state.overseerrSessionReady = false;
         state.overseerrSessionError = '';
-        needsSessionRefresh = true;
+        needsSetupRefresh = true;
       }
     }
   });
@@ -133,8 +154,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     populateSettingsForm();
     updateWeakDetectionsVisibility();
     rerenderMediaLists();
-    if (needsSessionRefresh) {
-      refreshOverseerrSessionStatus({ forceRefresh: true });
+    if (needsSetupRefresh) {
+      runSetupChecks({ forceRefresh: true }).catch((error) =>
+        console.error('Setup check refresh failed', error)
+      );
     }
   }
 });
@@ -152,8 +175,10 @@ async function bootstrap() {
   reflectSettingsState();
   populateSettingsForm();
   updateWeakDetectionsVisibility();
-  await refreshOverseerrSessionStatus();
-  await refreshDetectedMedia();
+  const ready = await runSetupChecks();
+  if (ready) {
+    await refreshDetectedMedia();
+  }
 }
 
 function bindEvents() {
@@ -179,23 +204,30 @@ function bindEvents() {
     event.preventDefault();
     performManualSearch(elements.searchInput.value.trim());
   });
+  elements.setupUrlForm?.addEventListener('submit', (event) => handleSetupUrlSubmit(event));
+  elements.setupRetryButton?.addEventListener('click', () => handleSetupRetry());
 }
 
 function showView(target = 'main') {
+  activeView = target;
   const views = {
     main: elements.mainView,
     settings: elements.settingsView,
-    help: elements.helpView
+    help: elements.helpView,
+    setup: elements.setupView
   };
   Object.values(views).forEach((view) => {
     if (view) {
       view.classList.add('hidden');
     }
   });
-  if (views[target]) {
-    views[target].classList.remove('hidden');
-  } else if (views.main) {
-    views.main.classList.remove('hidden');
+  if (setupState.visible && views.setup) {
+    views.setup.classList.remove('hidden');
+    return;
+  }
+  const resolved = views[target] || views.main;
+  if (resolved) {
+    resolved.classList.remove('hidden');
   }
 }
 
@@ -215,18 +247,33 @@ function populateSettingsForm() {
     state.settings.descriptionLength ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup,
     DESCRIPTION_LENGTH_LIMITS.defaultPopup
   );
+  updateSetupUrlInput(state.settings.overseerrUrl || '');
 }
 
 async function handleInlineSettingsSubmit(event) {
   event.preventDefault();
   const payload = readInlineSettingsForm();
+  const previousUrl = state.settings.overseerrUrl || '';
   setInlineSettingsStatus('Saving settings…');
   await saveSettings(payload);
   state.settings = { ...state.settings, ...payload };
   reflectSettingsState();
   populateSettingsForm();
   updateWeakDetectionsVisibility();
-  await refreshOverseerrSessionStatus({ forceRefresh: true });
+  if ((payload.overseerrUrl || '') !== previousUrl) {
+    const wasVisible = setupState.visible;
+    const ready = await runSetupChecks({ forceRefresh: true });
+    if (!ready) {
+      setInlineSettingsStatus(
+        'Settings saved. Review the setup checklist to finish connecting.',
+        'warning'
+      );
+      return;
+    }
+    if (wasVisible) {
+      await refreshDetectedMedia();
+    }
+  }
   setInlineSettingsStatus('Settings saved.');
 }
 
@@ -992,6 +1039,14 @@ function canCheckOverseerrStatus() {
 }
 
 function reflectSettingsState() {
+  if (setupState.visible) {
+    const message = state.settings.overseerrUrl
+      ? 'Review the setup checklist to finish connecting to Overseerr.'
+      : 'Add your Overseerr URL in the setup checklist to continue.';
+    setStatus(message, 'warning');
+    return;
+  }
+
   if (!state.settings.overseerrUrl) {
     setStatus('Add your Overseerr URL in Settings to enable search and requests.', 'warning');
     return;
@@ -1027,6 +1082,259 @@ function setStatus(message, tone = 'info') {
   elements.statusText.textContent = message;
   if (elements.statusBar) {
     elements.statusBar.dataset.tone = tone;
+  }
+}
+
+async function runSetupChecks(options = {}) {
+  if (!elements.setupView) {
+    return refreshOverseerrSessionStatus(options);
+  }
+
+  setSetupRunning(true);
+  try {
+    const sanitizedUrl = normalizeBaseUrl(state.settings.overseerrUrl || '');
+    updateSetupUrlInput(sanitizedUrl || state.settings.overseerrUrl || '');
+    if (!sanitizedUrl) {
+      setSetupCheck('url', {
+        status: 'error',
+        message: 'Enter your Overseerr URL to get started.'
+      });
+      setSetupCheck('reachability', {
+        status: 'idle',
+        message: 'Add a URL above to test connectivity.'
+      });
+      setSetupCheck('session', {
+        status: 'idle',
+        message: 'Once Overseerr is reachable we can verify authentication.'
+      });
+      state.overseerrSessionReady = false;
+      state.overseerrSessionError = '';
+      setSetupVisibility(true);
+      reflectSettingsState();
+      setStatus('Add your Overseerr URL to finish setup.', 'warning');
+      return false;
+    }
+
+    setSetupCheck('url', {
+      status: 'success',
+      message: `Using ${sanitizedUrl}.`
+    });
+
+    setSetupCheck('reachability', {
+      status: 'pending',
+      message: 'Checking if Overseerr is reachable…'
+    });
+
+    let versionLabel = '';
+    try {
+      const status = await callBackground('CHECK_OVERSEERR_STATUS', { overseerrUrl: sanitizedUrl });
+      if (status?.version) {
+        versionLabel = `v${status.version}`;
+      }
+    } catch (error) {
+      const failureMessage = `Overseerr is not reachable at ${sanitizedUrl}. Please check the URL and try again.`;
+      setSetupCheck('reachability', {
+        status: 'error',
+        message: error?.message ? `${failureMessage} (${error.message})` : failureMessage
+      });
+      setSetupCheck('session', {
+        status: 'idle',
+        message: 'We need to reach Overseerr before verifying your session.'
+      });
+      state.overseerrSessionReady = false;
+      state.overseerrSessionError = failureMessage;
+      setSetupVisibility(true);
+      reflectSettingsState();
+      setStatus('Overseerr is not reachable at that URL. Please check it and try again.', 'error');
+      return false;
+    }
+
+    const reachabilityMessage = versionLabel
+      ? `Overseerr reachable (${versionLabel}).`
+      : 'Overseerr is reachable.';
+    setSetupCheck('reachability', {
+      status: 'success',
+      message: reachabilityMessage
+    });
+
+    setSetupCheck('session', {
+      status: 'pending',
+      message: 'Verifying Overseerr session…'
+    });
+
+    try {
+      await callBackground('CHECK_OVERSEERR_SESSION', {
+        overseerrUrl: sanitizedUrl,
+        promptLogin: Boolean(options.promptLogin),
+        forceRefresh: Boolean(options.forceRefresh)
+      });
+    } catch (error) {
+      const authMessage =
+        error && error.code === 'AUTH_REQUIRED'
+          ? 'Authentication required. Sign into Overseerr and try again.'
+          : `Authentication check failed: ${error?.message || 'Unknown error'}`;
+      const helpSteps = [
+        `Open ${sanitizedUrl} in a tab and confirm you are logged into Overseerr and authorized to make requests.`,
+        'Reload this popup or try the extension on a new page after signing in.',
+        'Click Retry once you are signed in to run the checks again.'
+      ];
+      setSetupCheck('session', {
+        status: 'error',
+        message: authMessage,
+        steps: helpSteps
+      });
+      state.overseerrSessionReady = false;
+      state.overseerrSessionError = authMessage;
+      setSetupVisibility(true);
+      reflectSettingsState();
+      setStatus('Authentication error. Sign into Overseerr, then try again.', 'warning');
+      return false;
+    }
+
+    state.settings.overseerrUrl = sanitizedUrl;
+    state.overseerrSessionReady = true;
+    state.overseerrSessionError = '';
+    setSetupCheck('session', {
+      status: 'success',
+      message: 'Session authorized. Ready to request media.'
+    });
+    setSetupVisibility(false);
+    reflectSettingsState();
+    return true;
+  } finally {
+    setSetupRunning(false);
+  }
+}
+
+function setSetupVisibility(visible) {
+  if (!elements.setupView) {
+    setupState.visible = false;
+    return;
+  }
+  setupState.visible = Boolean(visible);
+  showView(activeView);
+}
+
+function setSetupRunning(running) {
+  setupState.running = Boolean(running);
+  if (elements.setupRetryButton) {
+    elements.setupRetryButton.disabled = Boolean(running);
+  }
+}
+
+function setSetupCheck(name, config = {}) {
+  const { status = 'idle', message = '', steps = [] } = config;
+  let card;
+  let statusEl;
+  let messageEl;
+  let helpEl;
+
+  if (name === 'url') {
+    card = elements.setupUrlCard;
+    statusEl = elements.setupUrlStatus;
+    messageEl = elements.setupUrlMessage;
+  } else if (name === 'reachability') {
+    card = elements.setupReachabilityCard;
+    statusEl = elements.setupReachabilityStatus;
+    messageEl = elements.setupReachabilityMessage;
+  } else if (name === 'session') {
+    card = elements.setupSessionCard;
+    statusEl = elements.setupSessionStatus;
+    messageEl = elements.setupSessionMessage;
+    helpEl = elements.setupSessionSteps;
+  }
+
+  if (card) {
+    card.dataset.status = status;
+  }
+  if (statusEl) {
+    statusEl.textContent = formatSetupStatus(status);
+  }
+  if (messageEl) {
+    messageEl.textContent = message;
+  }
+  if (helpEl) {
+    updateSetupHelpList(helpEl, steps);
+  }
+}
+
+function formatSetupStatus(status) {
+  switch (status) {
+    case 'success':
+      return 'Ready';
+    case 'error':
+      return 'Needs attention';
+    case 'pending':
+      return 'Checking…';
+    default:
+      return 'Waiting';
+  }
+}
+
+function updateSetupHelpList(listEl, steps = []) {
+  if (!listEl) {
+    return;
+  }
+  listEl.innerHTML = '';
+  if (!Array.isArray(steps) || !steps.length) {
+    listEl.classList.add('hidden');
+    return;
+  }
+  steps.forEach((step) => {
+    const item = document.createElement('li');
+    item.textContent = step;
+    listEl.appendChild(item);
+  });
+  listEl.classList.remove('hidden');
+}
+
+function updateSetupUrlInput(value = '') {
+  if (elements.setupUrlInput) {
+    elements.setupUrlInput.value = value || '';
+  }
+}
+
+async function handleSetupUrlSubmit(event) {
+  event.preventDefault();
+  if (!elements.setupUrlInput) {
+    return;
+  }
+  const normalized = normalizeBaseUrl(elements.setupUrlInput.value);
+  if (!normalized) {
+    setSetupCheck('url', {
+      status: 'error',
+      message: 'Enter a valid Overseerr URL (example: https://overseerr.example.com).'
+    });
+    elements.setupUrlInput.focus();
+    return;
+  }
+
+  setSetupCheck('url', {
+    status: 'pending',
+    message: 'Saving Overseerr URL…'
+  });
+
+  try {
+    await saveSettings({ overseerrUrl: normalized });
+    state.settings.overseerrUrl = normalized;
+    const wasVisible = setupState.visible;
+    const ready = await runSetupChecks({ forceRefresh: true });
+    if (ready && wasVisible) {
+      await refreshDetectedMedia();
+    }
+  } catch (error) {
+    setSetupCheck('url', {
+      status: 'error',
+      message: error?.message || 'Unable to save settings.'
+    });
+  }
+}
+
+async function handleSetupRetry() {
+  const wasVisible = setupState.visible;
+  const ready = await runSetupChecks({ promptLogin: true, forceRefresh: true });
+  if (ready && wasVisible) {
+    await refreshDetectedMedia();
   }
 }
 
