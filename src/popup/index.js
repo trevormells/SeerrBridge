@@ -1114,8 +1114,20 @@ async function handleSetupRetry() {
 }
 
 function getActiveTab() {
-  return new Promise((resolve) => {
+  if (!chrome?.tabs?.query) {
+    return Promise.reject(
+      new Error(
+        'Unable to inspect the active tab. Click the extension icon on the tab you want to scan and try again.'
+      )
+    );
+  }
+
+  return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
       resolve(tabs && tabs[0]);
     });
   });
@@ -1128,6 +1140,14 @@ function getActiveTab() {
  * @returns {Promise<DetectionResponse>}
  */
 function sendMessageToTab(tabId, payload) {
+  if (!chrome?.tabs?.sendMessage) {
+    return Promise.reject(
+      new Error(
+        'Unable to contact the active tab. Refresh the page and click the extension icon again to grant temporary access.'
+      )
+    );
+  }
+
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, payload, (response) => {
       if (chrome.runtime.lastError) {
