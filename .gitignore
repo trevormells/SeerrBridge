@@ -5,6 +5,7 @@ node_modules
 _debug
 _metadata
 dist
-**/*.swp 
+release/artifacts/
+**/*.swp
 chrome-extensions-samples-main
 chrome-extensions-samples-main/*

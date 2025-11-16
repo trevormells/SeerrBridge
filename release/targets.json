@@ -1,0 +1,24 @@
+{
+  "globalExcludes": [
+    "release/artifacts/*",
+    "node_modules/*",
+    ".git/*",
+    ".github/*",
+    ".DS_Store",
+    "*.log",
+    "dist/*",
+    "package-lock.json"
+  ],
+  "targets": {
+    "chrome": {
+      "displayName": "Chrome Web Store",
+      "description": "Upload-ready ZIP for the Chrome Web Store dashboard.",
+      "archiveName": "seerrbridge-chrome"
+    },
+    "edge": {
+      "displayName": "Microsoft Edge Add-ons",
+      "description": "Same code packaged for the Edge Add-ons store. Update notes/screenshots before uploading.",
+      "archiveName": "seerrbridge-edge"
+    }
+  }
+}
