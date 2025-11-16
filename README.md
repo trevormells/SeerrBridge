@@ -1,6 +1,6 @@
-# OverrBridge – Overseerr helper
+# SeerrBridge – Overseerr helper
 
-OverrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you're currently visiting, pulls out titles it thinks are movies or TV series, and lets you send Overseerr requests with one click. It enriches detections and manual searches with the metadata returned by your Overseerr instance so you can see posters, ratings, and release years before submitting a request.
+SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you're currently visiting, pulls out titles it thinks are movies or TV series, and lets you send Overseerr requests with one click. It enriches detections and manual searches with the metadata returned by your Overseerr instance so you can see posters, ratings, and release years before submitting a request.
 
 ## Features
 

@@ -1,15 +1,22 @@
-const STORAGE_KEYS = ['overseerrUrl', 'prefer4k'];
+import { CORE_SETTINGS_KEYS, loadSettings } from '../lib/settings.js';
+import {
+  executeOverseerrRequest,
+  OverseerrAuthError,
+  logOverseerrFailure
+} from '../lib/overseerr.js';
+import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
+
+/**
+ * @typedef {import('../lib/types.js').OverseerrRequestPayload} OverseerrRequestPayload
+ * @typedef {import('../lib/types.js').OverseerrSearchPayload} OverseerrSearchPayload
+ * @typedef {import('../lib/types.js').OverseerrStatusPayload} OverseerrStatusPayload
+ * @typedef {import('../lib/types.js').CheckOverseerrSessionPayload} CheckOverseerrSessionPayload
+ */
+
+const STORAGE_KEYS = CORE_SETTINGS_KEYS;
 const SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const sessionCache = new Map();
 const pendingLoginTabs = new Map();
-
-class OverseerrAuthError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'OverseerrAuthError';
-    this.code = 'AUTH_REQUIRED';
-  }
-}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message?.type) {
@@ -41,6 +48,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+/**
+ * Handles popup search requests by proxying to the Overseerr API.
+ * @param {OverseerrSearchPayload} param0
+ */
 async function handleOverseerrSearch({ query, page = 1, year }) {
   if (!query) {
     throw new Error('Search query required.');
@@ -69,7 +80,7 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
     sanitizedBase,
     endpointWithQuery,
     {},
-    { openLoginTabOnFailure: false }
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
   );
 
   if (!response.ok) {
@@ -91,6 +102,10 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
   };
 }
 
+/**
+ * Issues Overseerr requests for matched media on behalf of the popup.
+ * @param {OverseerrRequestPayload} param0
+ */
 async function handleOverseerrRequest({ tmdbId, mediaType }) {
   if (!tmdbId) {
     throw new Error('Missing TMDB id.');
@@ -127,7 +142,9 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
       },
       body: JSON.stringify(body)
     },
-    { openLoginTabOnFailure: true }
+    {
+      onAuthFailure: createAuthFailureHandler(sanitizedBase, true)
+    }
   );
 
   if (!response.ok) {
@@ -150,6 +167,10 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
   return { request: data };
 }
 
+/**
+ * Fetches Overseerr availability/request statuses for a specific TMDB id.
+ * @param {OverseerrStatusPayload} param0
+ */
 async function handleOverseerrMediaStatus({ tmdbId, mediaType }) {
   if (!tmdbId) {
     throw new Error('Missing TMDB id.');
@@ -170,7 +191,7 @@ async function handleOverseerrMediaStatus({ tmdbId, mediaType }) {
     sanitizedBase,
     endpoint,
     {},
-    { openLoginTabOnFailure: false }
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
   );
 
   if (response.status === 404) {
@@ -213,22 +234,13 @@ function deriveMediaInfoStatuses(mediaInfo) {
 }
 
 function getSettings() {
-  return new Promise((resolve, reject) => {
-    chrome.storage.sync.get(STORAGE_KEYS, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-      } else {
-        resolve(result || {});
-      }
-    });
-  });
+  return loadSettings(STORAGE_KEYS);
 }
 
-function buildOverseerrUrl(base, path) {
-  const sanitized = sanitizeBaseUrl(base);
-  return `${sanitized}${path}`;
-}
-
+/**
+ * Verifies the user's Overseerr session, optionally prompting for login.
+ * @param {CheckOverseerrSessionPayload} param0
+ */
 async function handleCheckOverseerrSession({
   overseerrUrl,
   promptLogin = false,
@@ -247,37 +259,6 @@ async function handleCheckOverseerrSession({
     forceRefresh
   });
   return { authenticated: true };
-}
-
-function sanitizeBaseUrl(base) {
-  if (!base) {
-    throw new Error('Overseerr URL missing. Update the options page and try again.');
-  }
-
-  let candidate = base.trim();
-  if (!candidate) {
-    throw new Error('Overseerr URL missing. Update the options page and try again.');
-  }
-
-  if (!/^https?:\/\//i.test(candidate)) {
-    candidate = `https://${candidate}`;
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(candidate);
-  } catch (error) {
-    throw new Error(
-      'Your Overseerr URL is invalid. Include http(s) and a valid host before requesting.'
-    );
-  }
-
-  const cleanPath =
-    parsed.pathname && parsed.pathname !== '/'
-      ? parsed.pathname.replace(/\/+$/, '')
-      : '';
-
-  return `${parsed.origin}${cleanPath}`;
 }
 
 function logOverseerrFailure(details) {
@@ -311,7 +292,9 @@ async function ensureOverseerrSession(baseUrl, options = {}) {
     sanitized,
     '/api/v1/auth/me',
     {},
-    { openLoginTabOnFailure: options.openLoginTabOnFailure }
+    {
+      onAuthFailure: createAuthFailureHandler(sanitized, Boolean(options.openLoginTabOnFailure))
+    }
   );
 
   if (!response.ok) {
@@ -340,37 +323,6 @@ async function ensureOverseerrSession(baseUrl, options = {}) {
   pendingLoginTabs.delete(sanitized);
   return true;
 }
-
-async function executeOverseerrRequest(
-  baseUrl,
-  endpoint,
-  init = {},
-  options = {}
-) {
-  const url = buildOverseerrUrl(baseUrl, endpoint);
-  const requestInit = {
-    credentials: 'include',
-    ...init
-  };
-
-  let response;
-  try {
-    response = await fetch(url, requestInit);
-  } catch (error) {
-    throw new Error('Unable to reach Overseerr. Check your URL and try again.');
-  }
-
-  if (response.status === 401) {
-    sessionCache.delete(sanitizeBaseUrl(baseUrl));
-    if (options.openLoginTabOnFailure) {
-      await openOverseerrLoginTab(baseUrl);
-    }
-    throw new OverseerrAuthError('Log into Overseerr in the opened tab, then retry.');
-  }
-
-  return { response, url };
-}
-
 async function openOverseerrLoginTab(baseUrl) {
   if (!chrome?.tabs?.create) {
     return;
@@ -396,6 +348,15 @@ async function openOverseerrLoginTab(baseUrl) {
   } catch (error) {
     console.error('Unable to open Overseerr login tab', error);
   }
+}
+
+function createAuthFailureHandler(baseUrl, shouldOpenLoginTab) {
+  return async () => {
+    sessionCache.delete(baseUrl);
+    if (shouldOpenLoginTab) {
+      await openOverseerrLoginTab(baseUrl);
+    }
+  };
 }
 
 function createTab(options) {

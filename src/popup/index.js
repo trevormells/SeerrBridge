@@ -1,16 +1,34 @@
-const DEFAULT_MAX_DETECTIONS = 10;
-const MAX_ALLOWED_DETECTIONS = 100;
-const DEFAULT_DESCRIPTION_LENGTH = 30;
-const MIN_DESCRIPTION_LENGTH = 10;
-const MAX_DESCRIPTION_LENGTH = 500;
+import {
+  AVAILABILITY_STATUS_LABELS,
+  DESCRIPTION_LENGTH_LIMITS,
+  DETECTION_LIMITS,
+  REQUEST_STATUS_LABELS
+} from '../lib/config.js';
+import { callBackground } from '../lib/runtime.js';
+import { sanitizeDescriptionLength, sanitizeDetectionLimit } from '../lib/sanitizers.js';
+import { loadSettings, saveSettings } from '../lib/settings.js';
+import { normalizeBaseUrl } from '../lib/url.js';
+import {
+  extractTitleAndYear,
+  extractYearFromString,
+  normalizeText as normalize
+} from '../lib/text.js';
 
+/**
+ * @typedef {import('../lib/types.js').DetectionResponse} DetectionResponse
+ * @typedef {import('../lib/types.js').DetectedMediaCandidate} DetectedMediaCandidate
+ * @typedef {import('../lib/types.js').EnrichedMediaItem} EnrichedMediaItem
+ * @typedef {import('../lib/types.js').PopupState} PopupState
+ */
+
+/** @type {PopupState} */
 const state = {
   settings: {
     overseerrUrl: '',
     prefer4k: false,
     showWeakDetections: false,
-    maxDetections: DEFAULT_MAX_DETECTIONS,
-    descriptionLength: DEFAULT_DESCRIPTION_LENGTH
+    maxDetections: DETECTION_LIMITS.default,
+    descriptionLength: DESCRIPTION_LENGTH_LIMITS.defaultPopup
   },
   detected: [],
   weakDetections: [],
@@ -24,80 +42,6 @@ const statusRequestTokens = {
   weak: 0,
   search: 0
 };
-
-const NOISE_PHRASES = [
-  'official trailer',
-  'trailer',
-  'teaser',
-  'teaser trailer',
-  'final trailer',
-  'clip',
-  'movie clip',
-  'behind the scenes',
-  'bts',
-  'interview',
-  'featurette',
-  'hd',
-  '4k',
-  '2024 new movie',
-  'english subtitles'
-];
-
-const AVAILABILITY_STATUS_LABELS = {
-  1: 'Unknown',
-  2: 'Pending',
-  3: 'Processing',
-  4: 'Partially available',
-  5: 'Available',
-  6: 'Deleted'
-};
-
-const REQUEST_STATUS_LABELS = {
-  1: 'Pending approval',
-  2: 'Approved',
-  3: 'Declined'
-};
-
-function escapeRegExp(text = '') {
-  return String(text ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalize(str = '') {
-  return String(str ?? '')
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function stripNoise(str = '') {
-  let s = normalize(String(str ?? '').toLowerCase());
-  NOISE_PHRASES.forEach((phrase) => {
-    const re = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, 'gi');
-    s = s.replace(re, '');
-  });
-  s = s.replace(/[\|\-–—]+/g, ' ');
-  s = s.replace(/\s+/g, ' ').trim();
-  return s;
-}
-
-function extractTitleAndYear(str = '') {
-  const s = stripNoise(str);
-
-  const yearMatch = s.match(/\((\d{4})\)/);
-  let year = null;
-  let core = s;
-  if (yearMatch) {
-    year = parseInt(yearMatch[1], 10);
-    core = s.slice(0, yearMatch.index).trim();
-  }
-
-  const sepIndex = core.search(/[\|\-–—:]/);
-  if (sepIndex > 0) {
-    core = core.slice(0, sepIndex).trim();
-  }
-
-  return { coreTitle: core, year };
-}
 
 const elements = {
   statusBar: document.querySelector('.status'),
@@ -163,9 +107,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
   Object.keys(changes).forEach((key) => {
     if (key in state.settings) {
       if (key === 'maxDetections') {
-        state.settings[key] = sanitizeDetectionLimit(changes[key].newValue);
+        state.settings[key] = sanitizeDetectionLimit(
+          changes[key].newValue,
+          DETECTION_LIMITS.default
+        );
       } else if (key === 'descriptionLength') {
-        state.settings[key] = sanitizeDescriptionLength(changes[key].newValue);
+        state.settings[key] = sanitizeDescriptionLength(
+          changes[key].newValue,
+          DESCRIPTION_LENGTH_LIMITS.defaultPopup
+        );
       } else {
         state.settings[key] = changes[key].newValue;
       }
@@ -191,8 +141,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function bootstrap() {
   const stored = await loadSettings();
   state.settings = { ...state.settings, ...stored };
-  state.settings.maxDetections = sanitizeDetectionLimit(state.settings.maxDetections);
-  state.settings.descriptionLength = sanitizeDescriptionLength(state.settings.descriptionLength);
+  state.settings.maxDetections = sanitizeDetectionLimit(
+    state.settings.maxDetections,
+    DETECTION_LIMITS.default
+  );
+  state.settings.descriptionLength = sanitizeDescriptionLength(
+    state.settings.descriptionLength,
+    DESCRIPTION_LENGTH_LIMITS.defaultPopup
+  );
   reflectSettingsState();
   populateSettingsForm();
   updateWeakDetectionsVisibility();
@@ -252,10 +208,12 @@ function populateSettingsForm() {
   form.prefer4k.checked = Boolean(state.settings.prefer4k);
   form.showWeakDetections.checked = Boolean(state.settings.showWeakDetections);
   form.maxDetections.value = sanitizeDetectionLimit(
-    state.settings.maxDetections ?? DEFAULT_MAX_DETECTIONS
+    state.settings.maxDetections ?? DETECTION_LIMITS.default,
+    DETECTION_LIMITS.default
   );
   form.descriptionLength.value = sanitizeDescriptionLength(
-    state.settings.descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH
+    state.settings.descriptionLength ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup,
+    DESCRIPTION_LENGTH_LIMITS.defaultPopup
   );
 }
 
@@ -263,7 +221,7 @@ async function handleInlineSettingsSubmit(event) {
   event.preventDefault();
   const payload = readInlineSettingsForm();
   setInlineSettingsStatus('Saving settings…');
-  await persistSettings(payload);
+  await saveSettings(payload);
   state.settings = { ...state.settings, ...payload };
   reflectSettingsState();
   populateSettingsForm();
@@ -335,15 +293,12 @@ function readInlineSettingsForm() {
     overseerrUrl: normalizeBaseUrl(form.overseerrUrl.value),
     prefer4k: Boolean(form.prefer4k.checked),
     showWeakDetections: Boolean(form.showWeakDetections.checked),
-    maxDetections: sanitizeDetectionLimit(form.maxDetections.value),
-    descriptionLength: sanitizeDescriptionLength(form.descriptionLength.value)
+    maxDetections: sanitizeDetectionLimit(form.maxDetections.value, DETECTION_LIMITS.default),
+    descriptionLength: sanitizeDescriptionLength(
+      form.descriptionLength.value,
+      DESCRIPTION_LENGTH_LIMITS.defaultPopup
+    )
   };
-}
-
-function persistSettings(payload) {
-  return new Promise((resolve) => {
-    chrome.storage.sync.set(payload, resolve);
-  });
 }
 
 async function refreshOverseerrSessionStatus(options = {}) {
@@ -448,13 +403,18 @@ async function refreshDetectedMedia() {
   }
 }
 
+/**
+ * Enriches detector candidates with Overseerr data when available.
+ * @param {DetectedMediaCandidate[]} candidates
+ * @returns {Promise<EnrichedMediaItem[]>}
+ */
 async function decorateCandidates(candidates) {
   if (!candidates.length) {
     return [];
   }
 
   const enriched = [];
-  const limit = sanitizeDetectionLimit(state.settings.maxDetections);
+  const limit = sanitizeDetectionLimit(state.settings.maxDetections, DETECTION_LIMITS.default);
   let canUseMetadata = canUseOverseerrSearch();
 
   for (let i = 0; i < candidates.length; i += 1) {
@@ -644,7 +604,10 @@ function createMediaCard(media) {
   const overview = document.createElement('p');
   overview.className = 'media-overview';
   const overviewSource = (media.overview || '').trim() || 'No description available yet.';
-  const descriptionLimit = sanitizeDescriptionLength(state.settings.descriptionLength);
+  const descriptionLimit = sanitizeDescriptionLength(
+    state.settings.descriptionLength,
+    DESCRIPTION_LENGTH_LIMITS.defaultPopup
+  );
   const truncatedOverview = truncateDescription(overviewSource, descriptionLimit);
   overview.textContent = truncatedOverview;
   if (truncatedOverview !== overviewSource) {
@@ -1049,47 +1012,6 @@ function setStatus(message, tone = 'info') {
   }
 }
 
-function loadSettings() {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(
-      [
-        'overseerrUrl',
-        'prefer4k',
-        'showWeakDetections',
-        'maxDetections',
-        'descriptionLength'
-      ],
-      (result) => resolve(result || {})
-    );
-  });
-}
-
-function normalizeBaseUrl(value) {
-  if (!value) {
-    return '';
-  }
-
-  let candidate = value.trim();
-  if (!candidate) {
-    return '';
-  }
-
-  if (!/^https?:\/\//i.test(candidate)) {
-    candidate = `https://${candidate}`;
-  }
-
-  try {
-    const parsed = new URL(candidate);
-    const path =
-      parsed.pathname && parsed.pathname !== '/'
-        ? parsed.pathname.replace(/\/+$/, '')
-        : '';
-    return `${parsed.origin}${path}`;
-  } catch (error) {
-    return candidate.replace(/\/+$/, '');
-  }
-}
-
 function getActiveTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -1098,6 +1020,12 @@ function getActiveTab() {
   });
 }
 
+/**
+ * Sends a message to the content script and resolves the detection payload.
+ * @param {number} tabId
+ * @param {{type: string}} payload
+ * @returns {Promise<DetectionResponse>}
+ */
 function sendMessageToTab(tabId, payload) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, payload, (response) => {
@@ -1106,30 +1034,6 @@ function sendMessageToTab(tabId, payload) {
       } else {
         resolve(response);
       }
-    });
-  });
-}
-
-function callBackground(type, payload) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type, payload }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      if (!response) {
-        reject(new Error('No response from background.'));
-        return;
-      }
-      if (!response.ok) {
-        const error = new Error(response.error || 'Unknown background error.');
-        if (response.code) {
-          error.code = response.code;
-        }
-        reject(error);
-        return;
-      }
-      resolve(response.data);
     });
   });
 }
@@ -1218,36 +1122,6 @@ function mediaCompletenessScore(media = {}) {
     score += 1;
   }
   return score;
-}
-
-function extractYearFromString(value) {
-  if (!value) {
-    return '';
-  }
-  const match = `${value}`.match(/(19|20)\d{2}/);
-  return match ? match[0] : '';
-}
-
-function sanitizeDetectionLimit(value) {
-  const parsed = parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_MAX_DETECTIONS;
-  }
-  if (parsed < 1) {
-    return 1;
-  }
-  return Math.min(parsed, MAX_ALLOWED_DETECTIONS);
-}
-
-function sanitizeDescriptionLength(value) {
-  const parsed = parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_DESCRIPTION_LENGTH;
-  }
-  if (parsed < MIN_DESCRIPTION_LENGTH) {
-    return MIN_DESCRIPTION_LENGTH;
-  }
-  return Math.min(parsed, MAX_DESCRIPTION_LENGTH);
 }
 
 function truncateDescription(text, limit) {

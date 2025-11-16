@@ -1,6 +1,16 @@
-(function () {
-  const DEFAULT_DETECTION_LIMIT = 10;
-  const MAX_DETECTION_LIMIT = 100;
+/**
+ * @typedef {import('../lib/types.js').DetectedMediaCandidate} DetectedMediaCandidate
+ * @typedef {import('../lib/types.js').DetectionResponse} DetectionResponse
+ */
+
+(async () => {
+  const [{ sanitizeDetectionLimit }, { DETECTION_LIMITS }] = await Promise.all([
+    import(chrome.runtime.getURL('src/lib/sanitizers.js')),
+    import(chrome.runtime.getURL('src/lib/config.js'))
+  ]);
+
+  const DEFAULT_DETECTION_LIMIT = DETECTION_LIMITS.default;
+  const MAX_DETECTION_LIMIT = DETECTION_LIMITS.max;
   const MEDIA_TYPES = ['Movie', 'TVSeries', 'TVEpisode', 'VideoObject'];
   const WEAK_TITLE_PATTERNS = [
     /\blist of\b/i,
@@ -55,17 +65,24 @@
     }
 
     chrome.storage.sync.get(['maxDetections'], (result = {}) => {
-      detectionLimit = sanitizeDetectionLimit(result.maxDetections);
+      detectionLimit = sanitizeDetectionLimit(result.maxDetections, DEFAULT_DETECTION_LIMIT);
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== 'sync' || !changes.maxDetections) {
         return;
       }
-      detectionLimit = sanitizeDetectionLimit(changes.maxDetections.newValue);
+      detectionLimit = sanitizeDetectionLimit(
+        changes.maxDetections.newValue,
+        DEFAULT_DETECTION_LIMIT
+      );
     });
   }
 
+  /**
+   * Generates a detection payload consumed by the popup script.
+   * @returns {DetectionResponse}
+   */
   function detectMedia() {
     const candidates = [
       ...parseJsonLd(),
@@ -425,14 +442,6 @@
     return score;
   }
 
-  function sanitizeDetectionLimit(value) {
-    const parsed = parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-      return DEFAULT_DETECTION_LIMIT;
-    }
-    return Math.min(parsed, MAX_DETECTION_LIMIT);
-  }
-
   function stripTitleNoise(value = '') {
     let result = value;
     let previous = null;
@@ -445,4 +454,6 @@
     }
     return result;
   }
-})();
+})().catch((error) => {
+  console.error('Detector bootstrap failed', error);
+});

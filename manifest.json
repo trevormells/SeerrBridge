@@ -1,5 +1,5 @@
 {
-  "name": "OverrBridge",
+  "name": "SeerrBridge",
   "description": "Detect media on the current page, enrich it with metadata, and send Overseerr requests from the toolbar popup.",
   "version": "0.1.0",
   "manifest_version": 3,
@@ -13,7 +13,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "src/background/index.js",
     "type": "module"
   },
   "action": {
@@ -23,7 +23,7 @@
       "48": "assets/logo1_t.png",
       "128": "assets/logo1_t.png"
     },
-    "default_title": "OverrBridge"
+    "default_title": "SeerrBridge"
   },
   "icons": {
     "16": "assets/logo1_t.png",
@@ -37,7 +37,7 @@
         "<all_urls>"
       ],
       "js": [
-        "detector.js"
+        "src/content/detector.js"
       ],
       "run_at": "document_idle"
     }
