@@ -415,12 +415,10 @@ async function ensureOverseerrSession(baseUrl, options = {}) {
   return true;
 }
 async function openOverseerrLoginTab(baseUrl) {
-  if (!chrome?.tabs?.create) {
-    return;
-  }
   const sanitized = dependencies.sanitizeBaseUrl(baseUrl);
   const loginUrl = dependencies.buildOverseerrUrl(sanitized, '/login');
-  const existingTabId = pendingLoginTabs.get(sanitized);
+  const canTrackTabs = Boolean(chrome?.tabs?.update);
+  const existingTabId = canTrackTabs ? pendingLoginTabs.get(sanitized) : undefined;
 
   if (existingTabId && Number.isInteger(existingTabId)) {
     try {
@@ -433,7 +431,7 @@ async function openOverseerrLoginTab(baseUrl) {
 
   try {
     const tab = await createTab({ url: loginUrl, active: true });
-    if (tab?.id) {
+    if (tab?.id && canTrackTabs) {
       pendingLoginTabs.set(sanitized, tab.id);
     }
   } catch (error) {
@@ -451,18 +449,30 @@ function createAuthFailureHandler(baseUrl, shouldOpenLoginTab) {
 }
 
 function createTab(options) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.create(options, (tab) => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-      } else {
-        resolve(tab);
-      }
+  if (chrome?.tabs?.create) {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.create(options, (tab) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(tab);
+        }
+      });
     });
-  });
+  }
+
+  if (options?.url && globalThis?.clients?.openWindow) {
+    return clients.openWindow(options.url);
+  }
+
+  return Promise.reject(new Error('Tab creation is not available in this environment.'));
 }
 
 function updateTab(tabId, options) {
+  if (!chrome?.tabs?.update) {
+    return Promise.reject(new Error('Tab updates are not available in this environment.'));
+  }
+
   return new Promise((resolve, reject) => {
     chrome.tabs.update(tabId, options, (tab) => {
       if (chrome.runtime.lastError) {
