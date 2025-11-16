@@ -4,13 +4,20 @@
  */
 
 (async () => {
-  const [{ sanitizeDetectionLimit }, { DETECTION_LIMITS }] = await Promise.all([
+  const [
+    { sanitizeDetectionLimit },
+    { DETECTION_LIMITS },
+    { mediaParsers },
+    parserUtilsModule
+  ] = await Promise.all([
     import(chrome.runtime.getURL('src/lib/sanitizers.js')),
-    import(chrome.runtime.getURL('src/lib/config.js'))
+    import(chrome.runtime.getURL('src/lib/config.js')),
+    import(chrome.runtime.getURL('src/content/parsers/registry.js')),
+    import(chrome.runtime.getURL('src/content/parsers/parserUtils.js'))
   ]);
+  const { guessYearFromText } = parserUtilsModule;
 
   const DEFAULT_DETECTION_LIMIT = DETECTION_LIMITS.default;
-  const MEDIA_TYPES = ['Movie', 'TVSeries', 'TVEpisode', 'VideoObject'];
   const WEAK_TITLE_PATTERNS = [
     /\blist of\b/i,
     /\bwatchlist\b/i,
@@ -53,9 +60,15 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'DETECT_MEDIA') {
-      const detections = detectMedia();
-      sendResponse(detections);
+      detectMedia()
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('detectMedia failed', error);
+          sendResponse({ items: [], weak_detections: [] });
+        });
+      return true;
     }
+    return undefined;
   });
 
   function initializeDetectionLimit() {
@@ -82,13 +95,12 @@
    * Generates a detection payload consumed by the popup script.
    * @returns {DetectionResponse}
    */
-  function detectMedia() {
-    const candidates = [
-      ...parseJsonLd(),
-      ...parseOpenGraph(),
-      ...parseHeading(),
-      ...parseImdbListItems()
-    ];
+  async function detectMedia() {
+    const parserContext = { document };
+    const parserOutputs = await Promise.all(
+      mediaParsers.map((parser) => runParser(parser, parserContext))
+    );
+    const candidates = parserOutputs.flat();
 
     const processed = dedupeCandidates(
       candidates.filter((item) => Boolean(item.title)).map(postProcessCandidate)
@@ -100,163 +112,27 @@
     };
   }
 
-  function parseJsonLd() {
-    const scripts = document.querySelectorAll(
-      'script[type="application/ld+json"]'
-    );
-    const items = [];
-
-    scripts.forEach((script) => {
-      try {
-        const json = JSON.parse(script.textContent || '{}');
-        if (Array.isArray(json)) {
-          json.forEach((entry) => items.push(...normalizeJsonLd(entry)));
-        } else {
-          items.push(...normalizeJsonLd(json));
-        }
-      } catch (error) {
-        // Ignore invalid JSON-LD blobs
-      }
-    });
-
-    return items;
+  async function runParser(parser, context) {
+    try {
+      const result = await parser.parse(context);
+      return normalizeParserOutput(parser, result);
+    } catch (error) {
+      console.warn(`Media parser "${parser.id}" failed`, error);
+      return [];
+    }
   }
 
-  function normalizeJsonLd(entry) {
-    if (!entry || typeof entry !== 'object') {
+  function normalizeParserOutput(parser, output) {
+    if (!Array.isArray(output)) {
       return [];
     }
 
-    if (Array.isArray(entry['@graph'])) {
-      return entry['@graph'].flatMap((item) => normalizeJsonLd(item));
-    }
-
-    if (Array.isArray(entry['@type'])) {
-      return entry['@type'].flatMap((type) =>
-        normalizeJsonLd({ ...entry, '@type': type })
-      );
-    }
-
-    if (!MEDIA_TYPES.includes(entry['@type'])) {
-      return [];
-    }
-
-    return [
-      {
-        title: entry.name || '',
-        subtitle: entry.description || '',
-        poster: entry.image || '',
-        releaseYear: getYear(entry.datePublished || entry.dateCreated),
-        source: 'json-ld',
-        mediaType: entry['@type']?.toLowerCase().startsWith('tv')
-          ? 'tv'
-          : 'movie'
-      }
-    ];
-  }
-
-  function parseOpenGraph() {
-    const ogTitle = getMeta('property', 'og:title');
-    if (!ogTitle) {
-      return [];
-    }
-
-    const ogType = (getMeta('property', 'og:type') || '').toLowerCase();
-    const tvTypes = ['video.tv_show', 'video.episode', 'tv_show', 'tv.episode'];
-    const type = tvTypes.some((tvType) => ogType.includes(tvType))
-      ? 'tv'
-      : 'movie';
-
-    return [
-      {
-        title: ogTitle,
-        subtitle: getMeta('property', 'og:description') || '',
-        poster: getMeta('property', 'og:image') || '',
-        releaseYear: guessYearFromText(
-          getMeta('name', 'release_date') || document.title
-        ),
-        source: 'open-graph',
-        mediaType: type
-      }
-    ];
-  }
-
-  function parseHeading() {
-    const heading =
-      document.querySelector('h1') || document.querySelector('h2');
-    if (!heading) {
-      return [];
-    }
-
-    return [
-      {
-        title: heading.textContent?.trim() || '',
-        subtitle: document.title || '',
-        poster: '',
-        releaseYear: guessYearFromText(document.title),
-        source: 'heading',
-        mediaType: 'movie'
-      }
-    ];
-  }
-
-  function parseImdbListItems() {
-    const items = document.querySelectorAll(
-      '.cli-children, [data-testid="title-list-item"]'
-    );
-    if (!items.length) {
-      return [];
-    }
-
-    return Array.from(items)
-      .map((item) => {
-        const title = item.querySelector('h3')?.textContent?.trim();
-        if (!title) {
-          return null;
-        }
-
-        const metadataItems = Array.from(
-          item.querySelectorAll('.cli-title-metadata-item')
-        )
-          .map((el) => el.textContent?.trim())
-          .filter(Boolean);
-        const ranking =
-          item
-            .querySelector('[data-testid="title-list-item-ranking"] .ipc-signpost__text')
-            ?.textContent?.trim() || '';
-        const rating =
-          item
-            .querySelector('[data-testid="ratingGroup--imdb-rating"] .ipc-rating-star--rating')
-            ?.textContent?.trim() || '';
-        const votes =
-          item
-            .querySelector('[data-testid="ratingGroup--imdb-rating"] .ipc-rating-star--voteCount')
-            ?.textContent?.trim() || '';
-
-        const subtitleParts = [];
-        if (ranking) {
-          subtitleParts.push(ranking);
-        }
-        if (metadataItems.length) {
-          subtitleParts.push(metadataItems.join(' • '));
-        }
-        if (rating) {
-          subtitleParts.push(`IMDb ${rating}${votes ? ` ${votes}` : ''}`);
-        }
-
-        const releaseYearText =
-          metadataItems.find((text) => /(19|20)\d{2}/.test(text)) || '';
-
-        return {
-          title,
-          subtitle: subtitleParts.join(' • '),
-          poster: '',
-          releaseYear: guessYearFromText(releaseYearText || title),
-          source: 'imdb-list',
-          mediaType: 'movie'
-        };
-      })
-      .filter(Boolean);
+    return output
+      .filter(Boolean)
+      .map((item) => ({
+        ...item,
+        source: item.source || parser.id
+      }));
   }
 
   function dedupeCandidates(candidates) {
@@ -308,32 +184,6 @@
       },
       { items: [], weakDetections: [] }
     );
-  }
-
-  function getMeta(attribute, value) {
-    return (
-      document
-        .querySelector(`meta[${attribute}="${value}"]`)
-        ?.getAttribute('content') || ''
-    );
-  }
-
-  function getYear(dateString) {
-    if (!dateString) {
-      return '';
-    }
-
-    const year = new Date(dateString).getFullYear();
-    return Number.isNaN(year) ? '' : `${year}`;
-  }
-
-  function guessYearFromText(text) {
-    if (!text) {
-      return '';
-    }
-
-    const match = text.match(/(19|20)\d{2}/);
-    return match ? match[0] : '';
   }
 
   function postProcessCandidate(candidate) {
