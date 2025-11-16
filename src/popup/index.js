@@ -13,6 +13,7 @@ import {
   extractYearFromString,
   normalizeText as normalize
 } from '../lib/text.js';
+import { createSettingsPanel } from '../lib/settingsPanel.js';
 
 /**
  * @typedef {import('../lib/types.js').DetectionResponse} DetectionResponse
@@ -43,6 +44,8 @@ const setupState = {
 };
 
 let activeView = 'main';
+
+let inlineSettingsPanel = null;
 
 const statusRequestTokens = {
   detected: 0,
@@ -76,9 +79,6 @@ const elements = {
   helpView: document.getElementById('view-help'),
   closeSettings: document.getElementById('close-settings'),
   closeHelp: document.getElementById('close-help'),
-  settingsForm: document.getElementById('inline-settings-form'),
-  settingsStatus: document.getElementById('inline-settings-status'),
-  testOverseerr: document.getElementById('inline-test-overseerr'),
   setupView: document.getElementById('view-setup'),
   setupUrlCard: document.getElementById('setup-card-url'),
   setupUrlStatus: document.getElementById('setup-url-status'),
@@ -120,6 +120,7 @@ const STATUS_LIST_CONFIG = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  setupInlineSettingsPanel();
   bindEvents();
   bootstrap();
 });
@@ -157,7 +158,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
   if (mutated) {
     reflectSettingsState();
-    populateSettingsForm();
+    syncInlineSettingsPanelValues();
     updateWeakDetectionsVisibility();
     rerenderMediaLists();
     if (needsSetupRefresh) {
@@ -179,7 +180,7 @@ async function bootstrap() {
     DESCRIPTION_LENGTH_LIMITS.defaultPopup
   );
   reflectSettingsState();
-  populateSettingsForm();
+  syncInlineSettingsPanelValues();
   updateWeakDetectionsVisibility();
   const ready = await runSetupChecks();
   if (ready) {
@@ -190,13 +191,13 @@ async function bootstrap() {
 function bindEvents() {
   elements.refreshButton?.addEventListener('click', () => refreshDetectedMedia());
   elements.openOptions?.addEventListener('click', () => {
-    populateSettingsForm();
-    setInlineSettingsStatus('');
+    syncInlineSettingsPanelValues();
+    inlineSettingsPanel?.setStatus('');
     showView('settings');
   });
   elements.closeSettings?.addEventListener('click', () => {
     showView('main');
-    setInlineSettingsStatus('');
+    inlineSettingsPanel?.setStatus('');
   });
   elements.openHelp?.addEventListener('click', () => {
     showView('help');
@@ -204,8 +205,6 @@ function bindEvents() {
   elements.closeHelp?.addEventListener('click', () => {
     showView('main');
   });
-  elements.settingsForm?.addEventListener('submit', (event) => handleInlineSettingsSubmit(event));
-  elements.testOverseerr?.addEventListener('click', () => handleInlineTestOverseerr());
   elements.searchForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     performManualSearch(elements.searchInput.value.trim());
@@ -237,139 +236,77 @@ function showView(target = 'main') {
   }
 }
 
-function populateSettingsForm() {
-  if (!elements.settingsForm) {
+function setupInlineSettingsPanel() {
+  const container = document.getElementById('inline-settings-panel');
+  if (!container) {
     return;
   }
-  const form = elements.settingsForm;
-  form.overseerrUrl.value = state.settings.overseerrUrl || '';
-  form.prefer4k.checked = Boolean(state.settings.prefer4k);
-  form.showWeakDetections.checked = Boolean(state.settings.showWeakDetections);
-  form.maxDetections.value = sanitizeDetectionLimit(
-    state.settings.maxDetections ?? DETECTION_LIMITS.default,
-    DETECTION_LIMITS.default
-  );
-  form.descriptionLength.value = sanitizeDescriptionLength(
-    state.settings.descriptionLength ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup,
-    DESCRIPTION_LENGTH_LIMITS.defaultPopup
-  );
+  inlineSettingsPanel = createSettingsPanel({
+    root: container,
+    idPrefix: 'inline-',
+    descriptionLengthDefault: DESCRIPTION_LENGTH_LIMITS.defaultPopup,
+    maxDetectionsDefault: DETECTION_LIMITS.default,
+    onAfterSave: (context) => handleInlineSettingsSaved(context),
+    onTestResult: (result) => handleInlineTestResult(result)
+  });
+}
+
+function syncInlineSettingsPanelValues() {
+  if (inlineSettingsPanel) {
+    inlineSettingsPanel.setValues(state.settings);
+  }
   updateSetupUrlInput(state.settings.overseerrUrl || '');
 }
 
-async function handleInlineSettingsSubmit(event) {
-  event.preventDefault();
-  const payload = readInlineSettingsForm();
+async function handleInlineSettingsSaved({ values, setStatus }) {
   const previousUrl = state.settings.overseerrUrl || '';
-  setInlineSettingsStatus('Saving settings…');
-  await saveSettings(payload);
-  state.settings = { ...state.settings, ...payload };
-  reflectSettingsState();
-  populateSettingsForm();
-  updateWeakDetectionsVisibility();
-  if ((payload.overseerrUrl || '') !== previousUrl) {
-    const wasVisible = setupState.visible;
-    const ready = await runSetupChecks({ forceRefresh: true });
-    if (!ready) {
-      setInlineSettingsStatus(
-        'Settings saved. Review the setup checklist to finish connecting.',
-        'warning'
-      );
-      return;
-    }
-    if (wasVisible) {
-      await refreshDetectedMedia();
-    }
-  }
-  setInlineSettingsStatus('Settings saved.');
-}
-
-async function handleInlineTestOverseerr() {
-  const { overseerrUrl } = readInlineSettingsForm();
-  if (!overseerrUrl) {
-    setInlineSettingsStatus('Add your Overseerr URL first.', 'warning');
-    return;
-  }
-
-  setInlineSettingsStatus('Checking Overseerr server status…');
-  let versionLabel = 'unknown version';
   try {
-    const status = await callBackground('CHECK_OVERSEERR_STATUS', { overseerrUrl });
-    versionLabel = status?.version ? `v${status.version}` : versionLabel;
-    setInlineSettingsStatus(`Overseerr reachable (${versionLabel}). Checking session…`);
-  } catch (error) {
-    setInlineSettingsStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
-    return;
-  }
-
-  try {
-    await callBackground('CHECK_OVERSEERR_SESSION', {
-      overseerrUrl,
-      promptLogin: true,
-      forceRefresh: true
-    });
-    setInlineSettingsStatus(
-      `Overseerr ${versionLabel} reachable. Session authorized. Ready to request.`
-    );
-    if (overseerrUrl === state.settings.overseerrUrl) {
-      state.overseerrSessionReady = true;
-      state.overseerrSessionError = '';
-      reflectSettingsState();
-    }
-  } catch (error) {
-    if (error.code === 'AUTH_REQUIRED') {
-      setInlineSettingsStatus(
-        `Overseerr ${versionLabel} reachable, but login required. Log into Overseerr in the opened tab, then retry.`,
-        'warning'
-      );
-      if (overseerrUrl === state.settings.overseerrUrl) {
-        state.overseerrSessionReady = false;
-        state.overseerrSessionError =
-          error.message || 'Log into Overseerr in the opened tab, then retry.';
-        reflectSettingsState();
+    state.settings = { ...state.settings, ...values };
+    reflectSettingsState();
+    syncInlineSettingsPanelValues();
+    updateWeakDetectionsVisibility();
+    if ((values.overseerrUrl || '') !== previousUrl) {
+      const wasVisible = setupState.visible;
+      const ready = await runSetupChecks({ forceRefresh: true });
+      if (!ready) {
+        setStatus(
+          'Settings saved. Review the setup checklist to finish connecting.',
+          'warning'
+        );
+        return true;
       }
-      return;
+      if (wasVisible) {
+        await refreshDetectedMedia();
+      }
     }
-    setInlineSettingsStatus(
-      `Overseerr ${versionLabel} reachable, but unable to verify session: ${error.message}`,
-      'error'
-    );
-    if (overseerrUrl === state.settings.overseerrUrl) {
-      state.overseerrSessionReady = false;
-      state.overseerrSessionError = error.message || 'Unable to reach Overseerr.';
-      reflectSettingsState();
-    }
+    setStatus('Settings saved.');
+  } catch (error) {
+    setStatus(error?.message || 'Unable to save settings.', 'error');
   }
+  return true;
 }
 
-function setInlineSettingsStatus(message = '', tone = 'info') {
-  if (!elements.settingsStatus) {
+function handleInlineTestResult(result) {
+  if (!result || !result.values) {
     return;
   }
-  elements.settingsStatus.textContent = message;
-  elements.settingsStatus.dataset.tone = tone;
-}
-
-function readInlineSettingsForm() {
-  if (!elements.settingsForm) {
-    return {
-      overseerrUrl: state.settings.overseerrUrl || '',
-      prefer4k: Boolean(state.settings.prefer4k),
-      showWeakDetections: Boolean(state.settings.showWeakDetections),
-      maxDetections: state.settings.maxDetections,
-      descriptionLength: state.settings.descriptionLength
-    };
+  const normalizedTestUrl = normalizeBaseUrl(result.values.overseerrUrl || '');
+  const normalizedStoredUrl = normalizeBaseUrl(state.settings.overseerrUrl || '');
+  if (!normalizedTestUrl || !normalizedStoredUrl || normalizedTestUrl !== normalizedStoredUrl) {
+    return;
   }
-  const form = elements.settingsForm;
-  return {
-    overseerrUrl: normalizeBaseUrl(form.overseerrUrl.value),
-    prefer4k: Boolean(form.prefer4k.checked),
-    showWeakDetections: Boolean(form.showWeakDetections.checked),
-    maxDetections: sanitizeDetectionLimit(form.maxDetections.value, DETECTION_LIMITS.default),
-    descriptionLength: sanitizeDescriptionLength(
-      form.descriptionLength.value,
-      DESCRIPTION_LENGTH_LIMITS.defaultPopup
-    )
-  };
+  if (result.status === 'success') {
+    state.overseerrSessionReady = true;
+    state.overseerrSessionError = '';
+  } else if (result.status === 'auth-required') {
+    state.overseerrSessionReady = false;
+    state.overseerrSessionError =
+      result.error?.message || 'Log into Overseerr in the opened tab, then retry.';
+  } else {
+    state.overseerrSessionReady = false;
+    state.overseerrSessionError = result.error?.message || 'Unable to reach Overseerr.';
+  }
+  reflectSettingsState();
 }
 
 async function refreshOverseerrSessionStatus(options = {}) {
