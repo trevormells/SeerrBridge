@@ -237,14 +237,26 @@ async function handleInlineTestOverseerr() {
     return;
   }
 
-  setInlineSettingsStatus('Checking Overseerr session…');
+  setInlineSettingsStatus('Checking Overseerr server status…');
+  let versionLabel = 'unknown version';
+  try {
+    const status = await callBackground('CHECK_OVERSEERR_STATUS', { overseerrUrl });
+    versionLabel = status?.version ? `v${status.version}` : versionLabel;
+    setInlineSettingsStatus(`Overseerr reachable (${versionLabel}). Checking session…`);
+  } catch (error) {
+    setInlineSettingsStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
+    return;
+  }
+
   try {
     await callBackground('CHECK_OVERSEERR_SESSION', {
       overseerrUrl,
       promptLogin: true,
       forceRefresh: true
     });
-    setInlineSettingsStatus('Overseerr session detected.');
+    setInlineSettingsStatus(
+      `Overseerr ${versionLabel} reachable. Session authorized. Ready to request.`
+    );
     if (overseerrUrl === state.settings.overseerrUrl) {
       state.overseerrSessionReady = true;
       state.overseerrSessionError = '';
@@ -252,7 +264,10 @@ async function handleInlineTestOverseerr() {
     }
   } catch (error) {
     if (error.code === 'AUTH_REQUIRED') {
-      setInlineSettingsStatus('Log into Overseerr in the opened tab, then retry.', 'warning');
+      setInlineSettingsStatus(
+        `Overseerr ${versionLabel} reachable, but login required. Log into Overseerr in the opened tab, then retry.`,
+        'warning'
+      );
       if (overseerrUrl === state.settings.overseerrUrl) {
         state.overseerrSessionReady = false;
         state.overseerrSessionError =
@@ -261,7 +276,10 @@ async function handleInlineTestOverseerr() {
       }
       return;
     }
-    setInlineSettingsStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
+    setInlineSettingsStatus(
+      `Overseerr ${versionLabel} reachable, but unable to verify session: ${error.message}`,
+      'error'
+    );
     if (overseerrUrl === state.settings.overseerrUrl) {
       state.overseerrSessionReady = false;
       state.overseerrSessionError = error.message || 'Unable to reach Overseerr.';
