@@ -1,0 +1,11 @@
+{
+  "target": "chrome",
+  "displayName": "Chrome Web Store",
+  "description": "Upload-ready ZIP for the Chrome Web Store dashboard.",
+  "archive": "release/artifacts/0.1.0/chrome/seerrbridge-chrome-0.1.0.zip",
+  "sha256": "75c0c3bb03b8eeb8594b5cda2f873f608bb3ca379890881a02ec85d64f226a61",
+  "manifestVersion": "0.1.0",
+  "packageVersion": "0.1.0",
+  "commit": "010417e00037a09cdfab4a1cf7433e5221052143",
+  "generatedAt": "2025-11-16T22:15:54.662Z"
+}
