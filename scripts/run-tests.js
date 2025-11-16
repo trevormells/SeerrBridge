@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const skipDirs = new Set(['node_modules', '.git', 'dist']);
 const jsFiles = [];
@@ -71,13 +73,35 @@ if (failed) {
 
 console.log('All JavaScript files passed syntax checks.');
 
-if (testFiles.length) {
-  console.log('Running unit tests...');
-  const testResult = spawnSync(process.execPath, ['--test', ...testFiles], {
-    stdio: 'inherit'
-  });
+const testsDir = path.join(root, 'tests');
+if (fs.existsSync(testsDir)) {
+  const testFiles = [];
+  const collect = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        collect(full);
+      } else if (entry.isFile() && /\.test\.(mjs|cjs|js)$/.test(entry.name)) {
+        testFiles.push(path.relative(root, full));
+      }
+    }
+  };
+  collect(testsDir);
 
-  if (testResult.status !== 0) {
-    process.exit(testResult.status || 1);
+  if (testFiles.length === 0) {
+    console.log('No unit test files found.');
+  } else {
+    console.log('Running unit tests via node --test…');
+    const testResult = spawnSync(process.execPath, ['--test', ...testFiles], {
+      cwd: root,
+      stdio: 'inherit'
+    });
+
+    if (testResult.status !== 0) {
+      console.error('Unit tests failed.');
+      process.exit(testResult.status ?? 1);
+    }
   }
+} else {
+  console.log('No tests directory found.');
 }
