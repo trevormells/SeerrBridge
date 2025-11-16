@@ -316,16 +316,57 @@ input {
 }
 
 .media-ratings {
-  margin: 4px 0;
+  margin: 8px 0;
+  padding: 6px 0 4px;
+  border-top: 1px solid #1b2738;
+  border-bottom: 1px solid #1b2738;
   font-size: 0.72rem;
   color: #f8fafc;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.media-ratings span {
-  display: block;
+.rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+}
+
+.rating-chip:hover {
+  border-color: #334155;
+}
+
+.rating-chip__icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  flex-shrink: 0;
+}
+
+.rating-chip__icon--rt {
+  background-image: url('assets/rating_providers/rt_logo_100px.png');
+}
+
+.rating-chip__icon--imdb {
+  background-image: url('assets/rating_providers/IMDB_logo_100px.png');
+}
+
+.rating-chip__icon--rt-audience {
+  background-image: url('assets/rating_providers/rt_audience_logo_100px.png');
+}
+
+.rating-chip__text {
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .media-ratings.is-muted {

@@ -791,17 +791,36 @@ function createRatingsBlock(media) {
     return container;
   }
 
-  const lines = buildRatingLines(media.ratings);
-  if (!lines.length) {
+  const entries = buildRatingEntries(media.ratings);
+  if (!entries.length) {
     container.textContent = 'Ratings unavailable.';
     container.classList.add('is-muted');
     return container;
   }
 
-  lines.forEach((text) => {
-    const span = document.createElement('span');
-    span.textContent = text;
-    container.appendChild(span);
+  entries.forEach((entry) => {
+    const chip = document.createElement('div');
+    chip.className = 'rating-chip';
+    chip.dataset.source = entry.provider;
+    if (entry.id) {
+      chip.dataset.variant = entry.id;
+    }
+    if (entry.tooltip) {
+      chip.title = entry.tooltip;
+      chip.setAttribute('aria-label', entry.tooltip);
+    }
+
+    const icon = document.createElement('span');
+    icon.className = `rating-chip__icon rating-chip__icon--${entry.icon || entry.provider}`;
+    icon.setAttribute('aria-hidden', 'true');
+    chip.appendChild(icon);
+
+    const label = document.createElement('span');
+    label.className = 'rating-chip__text';
+    label.textContent = entry.display;
+    chip.appendChild(label);
+
+    container.appendChild(chip);
   });
 
   return container;
@@ -862,46 +881,48 @@ function createOverseerrStatusBlock(media) {
   return container;
 }
 
-function buildRatingLines(ratings) {
+function buildRatingEntries(ratings) {
   if (!ratings || typeof ratings !== 'object') {
     return [];
   }
-  const lines = [];
-  const rtLine = formatRottenTomatoesLine(ratings.rt);
-  if (rtLine) {
-    lines.push(rtLine);
+  const entries = [];
+  const rtEntry = ratings.rt;
+  if (rtEntry) {
+    if (typeof rtEntry.criticsScore === 'number') {
+      const score = formatPercentScore(rtEntry.criticsScore);
+      const tooltip = `Critics ${score}${rtEntry.criticsRating ? ` (${rtEntry.criticsRating})` : ''}`;
+      entries.push({
+        provider: 'rt',
+        icon: 'rt',
+        id: 'critics',
+        display: score,
+        tooltip
+      });
+    }
+    if (typeof rtEntry.audienceScore === 'number') {
+      const score = formatPercentScore(rtEntry.audienceScore);
+      const tooltip = `Audience ${score}${rtEntry.audienceRating ? ` (${rtEntry.audienceRating})` : ''}`;
+      entries.push({
+        provider: 'rt',
+        icon: 'rt-audience',
+        id: 'audience',
+        display: score,
+        tooltip
+      });
+    }
   }
-  const imdbLine = formatImdbLine(ratings.imdb);
-  if (imdbLine) {
-    lines.push(imdbLine);
+  const imdbEntry = ratings.imdb;
+  if (imdbEntry && typeof imdbEntry.criticsScore === 'number') {
+    const score = `${formatDecimalScore(imdbEntry.criticsScore)}/10`;
+    entries.push({
+      provider: 'imdb',
+      icon: 'imdb',
+      id: 'imdb',
+      display: score,
+      tooltip: `IMDb ${score}`
+    });
   }
-  return lines;
-}
-
-function formatRottenTomatoesLine(entry) {
-  if (!entry) {
-    return '';
-  }
-  const segments = [];
-  if (typeof entry.criticsScore === 'number') {
-    const ratingLabel = entry.criticsRating ? ` (${entry.criticsRating})` : '';
-    segments.push(`Critics ${formatPercentScore(entry.criticsScore)}${ratingLabel}`);
-  }
-  if (typeof entry.audienceScore === 'number') {
-    const ratingLabel = entry.audienceRating ? ` (${entry.audienceRating})` : '';
-    segments.push(`Audience ${formatPercentScore(entry.audienceScore)}${ratingLabel}`);
-  }
-  if (!segments.length) {
-    return '';
-  }
-  return `Rotten Tomatoes: ${segments.join(' · ')}`;
-}
-
-function formatImdbLine(entry) {
-  if (!entry || typeof entry.criticsScore !== 'number') {
-    return '';
-  }
-  return `IMDb: ${formatDecimalScore(entry.criticsScore)}/10`;
+  return entries;
 }
 
 function formatPercentScore(score) {
