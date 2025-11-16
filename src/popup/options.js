@@ -36,20 +36,36 @@ testButton.addEventListener('click', async () => {
     return;
   }
 
-  setStatus('Checking Overseerr session…');
+  setStatus('Checking Overseerr server status…');
+  let versionLabel = 'unknown version';
+  try {
+    const status = await callBackground('CHECK_OVERSEERR_STATUS', { overseerrUrl });
+    versionLabel = status?.version ? `v${status.version}` : versionLabel;
+    setStatus(`Overseerr reachable (${versionLabel}). Checking session…`);
+  } catch (error) {
+    setStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
+    return;
+  }
+
   try {
     await callBackground('CHECK_OVERSEERR_SESSION', {
       overseerrUrl,
       promptLogin: true,
       forceRefresh: true
     });
-    setStatus('Overseerr session detected. Ready to request.');
+    setStatus(`Overseerr ${versionLabel} reachable. Session authorized. Ready to request.`);
   } catch (error) {
     if (error.code === 'AUTH_REQUIRED') {
-      setStatus('Log into Overseerr in the opened tab, then click Test again.', 'warning');
+      setStatus(
+        `Overseerr ${versionLabel} reachable, but login required. Log into Overseerr in the opened tab, then click Test again.`,
+        'warning'
+      );
       return;
     }
-    setStatus(`Unable to reach Overseerr: ${error.message}`, 'error');
+    setStatus(
+      `Overseerr ${versionLabel} reachable, but unable to verify session: ${error.message}`,
+      'error'
+    );
   }
 });
 
