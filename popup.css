@@ -382,7 +382,7 @@ input {
   margin: 4px 0;
   font-size: 0.7rem;
   color: #bae6fd;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 2px;
 }

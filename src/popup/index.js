@@ -1,20 +1,40 @@
-import {
-  AVAILABILITY_STATUS_LABELS,
-  DESCRIPTION_LENGTH_LIMITS,
-  DETECTION_LIMITS,
-  REQUEST_STATUS_LABELS
-} from '../lib/config.js';
+import { DESCRIPTION_LENGTH_LIMITS, DETECTION_LIMITS } from '../lib/config.js';
 import { callBackground } from '../lib/runtime.js';
 import { sanitizeDescriptionLength, sanitizeDetectionLimit } from '../lib/sanitizers.js';
 import { loadSettings, saveSettings } from '../lib/settings.js';
 import { normalizeBaseUrl } from '../lib/url.js';
 import {
   extractTitleAndYear,
-  extractYearFromString,
   normalizeText as normalize
 } from '../lib/text.js';
 import { createSettingsPanel } from '../lib/settingsPanel.js';
 import { deriveMediaInfoStatuses } from '../lib/mediaStatus.js';
+import {
+  buildRatingEntries,
+  configureRendererContext,
+  formatDecimalScore,
+  formatPercentScore,
+  renderMediaList
+} from './renderers.js';
+import {
+  dedupeMedia,
+  isOverseerrTrackableMedia,
+  mediaCompletenessScore,
+  pickPreferredMedia,
+  prepareRatingsReadyList,
+  prepareStatusReadyList
+} from './mediaUtils.js';
+import {
+  normalizeCombinedRatings,
+  normalizeOverseerrResult,
+  selectBestOverseerrMatch
+} from './overseerrData.js';
+import {
+  ratingsRequestTokens,
+  setupState,
+  state,
+  statusRequestTokens
+} from './state.js';
 
 /**
  * @typedef {import('../lib/types.js').DetectionResponse} DetectionResponse
@@ -23,42 +43,9 @@ import { deriveMediaInfoStatuses } from '../lib/mediaStatus.js';
  * @typedef {import('../lib/types.js').PopupState} PopupState
  */
 
-/** @type {PopupState} */
-const state = {
-  settings: {
-    overseerrUrl: '',
-    prefer4k: false,
-    showWeakDetections: false,
-    maxDetections: DETECTION_LIMITS.default,
-    descriptionLength: DESCRIPTION_LENGTH_LIMITS.defaultPopup
-  },
-  detected: [],
-  weakDetections: [],
-  searchResults: [],
-  overseerrSessionReady: false,
-  overseerrSessionError: ''
-};
-
-const setupState = {
-  visible: false,
-  running: false
-};
-
 let activeView = 'main';
 
 let inlineSettingsPanel = null;
-
-const statusRequestTokens = {
-  detected: 0,
-  weak: 0,
-  search: 0
-};
-
-const ratingsRequestTokens = {
-  detected: 0,
-  weak: 0,
-  search: 0
-};
 
 const elements = {
   statusBar: document.querySelector('.status'),
@@ -119,6 +106,16 @@ const STATUS_LIST_CONFIG = {
     }
   }
 };
+
+configureRendererContext({
+  setStatus,
+  handleRequest,
+  openOverseerrMedia,
+  openOverseerrSearch,
+  canSubmitRequest: () => Boolean(state.settings.overseerrUrl && state.overseerrSessionReady),
+  canFetchOverseerrRatings,
+  canCheckOverseerrStatus
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   setupInlineSettingsPanel();
@@ -560,38 +557,6 @@ async function performManualSearch(query) {
   }
 }
 
-function selectBestOverseerrMatch(results, preferredMediaType) {
-  if (!Array.isArray(results) || !results.length) {
-    return null;
-  }
-  if (preferredMediaType === 'movie' || preferredMediaType === 'tv') {
-    const exact = results.find(
-      (item) => item?.mediaType === preferredMediaType
-    );
-    if (exact) {
-      return exact;
-    }
-  }
-  return results[0];
-}
-
-function renderMediaList(list, container, emptyElement) {
-  if (!container || !emptyElement) {
-    return;
-  }
-  container.innerHTML = '';
-  if (!list.length) {
-    emptyElement.classList.remove('hidden');
-    return;
-  }
-
-  emptyElement.classList.add('hidden');
-  list.forEach((media) => {
-    const card = createMediaCard(media);
-    container.appendChild(card);
-  });
-}
-
 function rerenderMediaLists() {
   renderMediaList(state.detected, elements.detectedList, elements.detectedEmpty);
   renderMediaList(
@@ -606,336 +571,6 @@ function rerenderMediaLists() {
   );
 }
 
-function createMediaCard(media) {
-  const li = document.createElement('li');
-  li.className = 'media-card';
-
-  const poster = document.createElement('img');
-  poster.alt = media.title;
-  poster.src = media.poster || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-
-  const info = document.createElement('div');
-  info.className = 'media-info';
-
-  const title = document.createElement('h3');
-  title.textContent = media.title;
-
-  const meta = document.createElement('p');
-  const badges = [`${media.mediaType === 'tv' ? 'TV' : 'Movie'}`];
-  if (media.releaseYear) {
-    badges.push(media.releaseYear);
-  }
-  if (typeof media.rating === 'number') {
-    badges.push(`Score ${media.rating.toFixed(1)}`);
-  }
-  meta.innerHTML = badges.map((text) => `<span class="badge">${text}</span>`).join('');
-
-  const overview = document.createElement('p');
-  overview.className = 'media-overview';
-  const overviewSource = (media.overview || '').trim() || 'No description available yet.';
-  const descriptionLimit = sanitizeDescriptionLength(
-    state.settings.descriptionLength,
-    DESCRIPTION_LENGTH_LIMITS.defaultPopup
-  );
-  const truncatedOverview = truncateDescription(overviewSource, descriptionLimit);
-  overview.textContent = truncatedOverview;
-  if (truncatedOverview !== overviewSource) {
-    overview.classList.add('is-toggleable');
-    overview.dataset.expanded = 'false';
-    overview.title = 'Click to expand description';
-    overview.addEventListener('click', () => {
-      const expanded = overview.dataset.expanded === 'true';
-      overview.textContent = expanded ? truncatedOverview : overviewSource;
-      overview.dataset.expanded = expanded ? 'false' : 'true';
-      overview.classList.toggle('is-expanded', !expanded);
-      overview.title = expanded ? 'Click to expand description' : 'Click to collapse description';
-    });
-  }
-
-  const footer = document.createElement('div');
-  footer.className = 'media-footer';
-
-  const requestAction = createMediaRequestAction(media);
-  if (requestAction) {
-    footer.appendChild(requestAction);
-  }
-
-  const hasOverseerrUrl = Boolean(state.settings.overseerrUrl);
-  const normalizedTitle = normalize(media.title);
-
-  const overseerrButton = document.createElement('button');
-  overseerrButton.type = 'button';
-  overseerrButton.className = 'media-overseerr-button';
-  if (media.tmdbId) {
-    overseerrButton.title = 'Go to Overseerr';
-    overseerrButton.setAttribute('aria-label', 'Go to Overseerr');
-    overseerrButton.dataset.variant = 'open';
-    overseerrButton.disabled = !hasOverseerrUrl;
-    overseerrButton.addEventListener('click', () => openOverseerrMedia(media));
-  } else {
-    overseerrButton.title = 'Search on Overseerr';
-    overseerrButton.setAttribute('aria-label', 'Search on Overseerr');
-    overseerrButton.dataset.variant = 'search';
-    overseerrButton.disabled = !hasOverseerrUrl || !normalizedTitle;
-    overseerrButton.addEventListener('click', () => {
-      const targetTitle = normalize(media.title);
-      if (!targetTitle) {
-        setStatus('Add the title before searching Overseerr.', 'warning');
-        return;
-      }
-      openOverseerrSearch(targetTitle);
-    });
-  }
-
-  info.appendChild(title);
-  info.appendChild(meta);
-  info.appendChild(overview);
-  const ratingsBlock = createRatingsBlock(media);
-  if (ratingsBlock) {
-    info.appendChild(ratingsBlock);
-  }
-  const statusBlock = createOverseerrStatusBlock(media);
-  if (statusBlock) {
-    info.appendChild(statusBlock);
-  }
-  info.appendChild(footer);
-
-  const posterColumn = document.createElement('div');
-  posterColumn.className = 'media-poster-column';
-  posterColumn.appendChild(poster);
-  posterColumn.appendChild(overseerrButton);
-
-  li.appendChild(posterColumn);
-  li.appendChild(info);
-
-  return li;
-}
-
-function createMediaRequestAction(media) {
-  if (!media) {
-    return null;
-  }
-
-  if (!media.tmdbId) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Search on Overseerr';
-    const normalizedTitle = normalize(media.title);
-    const hasOverseerrUrl = Boolean(state.settings.overseerrUrl);
-    button.disabled = !hasOverseerrUrl || !normalizedTitle;
-    button.addEventListener('click', () => {
-      const targetTitle = normalize(media.title);
-      if (!targetTitle) {
-        setStatus('Add the title before searching Overseerr.', 'warning');
-        return;
-      }
-      openOverseerrSearch(targetTitle);
-    });
-    return button;
-  }
-
-  if (!isOverseerrTrackableMedia(media.mediaType)) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Unsupported media type';
-    button.disabled = true;
-    return button;
-  }
-
-  const actionState = buildRequestActionState(media);
-  if (actionState.type === 'status') {
-    const statusLabel = document.createElement('span');
-    statusLabel.className = 'request-status-label';
-    statusLabel.textContent = actionState.label;
-    return statusLabel;
-  }
-
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = actionState.label;
-  button.disabled = actionState.disabled;
-  button.addEventListener('click', () => handleRequest(media, button));
-  return button;
-}
-
-function createRatingsBlock(media) {
-  if (!media?.showRatings) {
-    return null;
-  }
-
-  const container = document.createElement('div');
-  container.className = 'media-ratings';
-
-  if (!canFetchOverseerrRatings()) {
-    const message = state.settings.overseerrUrl
-      ? 'Log into Overseerr to load ratings.'
-      : 'Add your Overseerr URL to load ratings.';
-    container.textContent = message;
-    container.classList.add('is-muted');
-    return container;
-  }
-
-  if (!media.tmdbId) {
-    container.textContent = 'Match via Overseerr search to load ratings.';
-    container.classList.add('is-muted');
-    return container;
-  }
-
-  if (media.ratingsLoading) {
-    container.textContent = 'Loading ratings…';
-    return container;
-  }
-
-  if (media.ratingsError) {
-    container.textContent = media.ratingsError;
-    container.classList.add('is-error');
-    return container;
-  }
-
-  const entries = buildRatingEntries(media.ratings);
-  if (!entries.length) {
-    container.textContent = 'Ratings unavailable.';
-    container.classList.add('is-muted');
-    return container;
-  }
-
-  entries.forEach((entry) => {
-    const chip = document.createElement('div');
-    chip.className = 'rating-chip';
-    chip.dataset.source = entry.provider;
-    if (entry.id) {
-      chip.dataset.variant = entry.id;
-    }
-    if (entry.tooltip) {
-      chip.title = entry.tooltip;
-      chip.setAttribute('aria-label', entry.tooltip);
-    }
-
-    const icon = document.createElement('span');
-    icon.className = `rating-chip__icon rating-chip__icon--${entry.icon || entry.provider}`;
-    icon.setAttribute('aria-hidden', 'true');
-    chip.appendChild(icon);
-
-    const label = document.createElement('span');
-    label.className = 'rating-chip__text';
-    label.textContent = entry.display;
-    chip.appendChild(label);
-
-    container.appendChild(chip);
-  });
-
-  return container;
-}
-
-function createOverseerrStatusBlock(media) {
-  if (!media || !isOverseerrTrackableMedia(media.mediaType)) {
-    return null;
-  }
-
-  const container = document.createElement('div');
-  container.className = 'media-status';
-
-  if (!media.tmdbId) {
-    container.textContent = 'Match via Overseerr search to check Overseerr status.';
-    return container;
-  }
-
-  if (!canCheckOverseerrStatus()) {
-    container.textContent = 'Add Overseerr settings to check status.';
-    container.classList.add('is-error');
-    return container;
-  }
-
-  if (media.statusLoading) {
-    container.textContent = 'Checking Overseerr status…';
-    return container;
-  }
-
-  if (media.statusError) {
-    container.textContent = media.statusError;
-    container.classList.add('is-error');
-    return container;
-  }
-
-  const availabilityLabel = formatAvailabilityStatus(media.availabilityStatus);
-  const requestLabel = formatRequestStatus(media.requestStatus);
-
-  const lines = [];
-  if (availabilityLabel) {
-    const availabilityLine = document.createElement('span');
-    availabilityLine.textContent = `Availability: ${availabilityLabel}`;
-    lines.push(availabilityLine);
-  }
-  if (requestLabel) {
-    const requestLine = document.createElement('span');
-    requestLine.textContent = `Request: ${requestLabel}`;
-    lines.push(requestLine);
-  }
-
-  if (!lines.length) {
-    const idleLine = document.createElement('span');
-    idleLine.textContent = 'No Overseerr activity yet.';
-    lines.push(idleLine);
-  }
-
-  lines.forEach((line) => container.appendChild(line));
-  return container;
-}
-
-function buildRatingEntries(ratings) {
-  if (!ratings || typeof ratings !== 'object') {
-    return [];
-  }
-  const entries = [];
-  const rtEntry = ratings.rt;
-  if (rtEntry) {
-    if (typeof rtEntry.criticsScore === 'number') {
-      const score = formatPercentScore(rtEntry.criticsScore);
-      const tooltip = `Critics ${score}${rtEntry.criticsRating ? ` (${rtEntry.criticsRating})` : ''}`;
-      entries.push({
-        provider: 'rt',
-        icon: 'rt',
-        id: 'critics',
-        display: score,
-        tooltip
-      });
-    }
-    if (typeof rtEntry.audienceScore === 'number') {
-      const score = formatPercentScore(rtEntry.audienceScore);
-      const tooltip = `Audience ${score}${rtEntry.audienceRating ? ` (${rtEntry.audienceRating})` : ''}`;
-      entries.push({
-        provider: 'rt',
-        icon: 'rt-audience',
-        id: 'audience',
-        display: score,
-        tooltip
-      });
-    }
-  }
-  const imdbEntry = ratings.imdb;
-  if (imdbEntry && typeof imdbEntry.criticsScore === 'number') {
-    const score = `${formatDecimalScore(imdbEntry.criticsScore)}/10`;
-    entries.push({
-      provider: 'imdb',
-      icon: 'imdb',
-      id: 'imdb',
-      display: score,
-      tooltip: `IMDb ${score}`
-    });
-  }
-  return entries;
-}
-
-function formatPercentScore(score) {
-  return `${Math.round(score)}%`;
-}
-
-function formatDecimalScore(score) {
-  if (Number.isInteger(score)) {
-    return `${score}`;
-  }
-  return score.toFixed(1);
-}
 
 async function fetchStatusesForList(listName, token) {
   const config = STATUS_LIST_CONFIG[listName];
@@ -1117,6 +752,7 @@ function openOverseerrMedia(media) {
   }
   const baseUrl = getOverseerrBaseUrl();
   if (!baseUrl) {
+    setStatus('Add your Overseerr URL in Settings to open it directly.', 'warning');
     return;
   }
   const section = media.mediaType === 'tv' ? 'tv' : 'movie';
@@ -1126,6 +762,7 @@ function openOverseerrMedia(media) {
 function openOverseerrSearch(title) {
   const baseUrl = getOverseerrBaseUrl();
   if (!baseUrl) {
+    setStatus('Add your Overseerr URL in Settings to search directly.', 'warning');
     return;
   }
   const query = encodeURIComponent(title);
@@ -1135,7 +772,6 @@ function openOverseerrSearch(title) {
 function getOverseerrBaseUrl() {
   const base = (state.settings.overseerrUrl || '').trim();
   if (!base) {
-    setStatus('Add your Overseerr URL in Settings to open it directly.', 'warning');
     return '';
   }
   return base.replace(/\/+$/, '');
@@ -1174,65 +810,21 @@ function normalizeOverseerrResult(result = {}) {
   };
 }
 
-function normalizeCombinedRatings(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const normalized = {};
-  const rt = normalizeRatingsEntry(payload.rt);
-  if (rt) {
-    normalized.rt = rt;
-  }
-  const imdb = normalizeRatingsEntry(payload.imdb);
-  if (imdb) {
-    normalized.imdb = imdb;
-  }
-  return Object.keys(normalized).length ? normalized : null;
-}
-
-function normalizeRatingsEntry(entry) {
-  if (!entry || typeof entry !== 'object') {
-    return null;
-  }
-  const normalized = {};
-  if (typeof entry.title === 'string' && entry.title.trim()) {
-    normalized.title = entry.title.trim();
-  }
-  const yearValue = Number.parseInt(entry.year, 10);
-  if (!Number.isNaN(yearValue)) {
-    normalized.year = yearValue;
-  }
-  if (typeof entry.url === 'string' && entry.url.trim()) {
-    normalized.url = entry.url.trim();
-  }
-  const criticsScore = coerceScore(entry.criticsScore);
-  if (criticsScore !== null) {
-    normalized.criticsScore = criticsScore;
-  }
-  const audienceScore = coerceScore(entry.audienceScore);
-  if (audienceScore !== null) {
-    normalized.audienceScore = audienceScore;
-  }
-  if (typeof entry.criticsRating === 'string' && entry.criticsRating.trim()) {
-    normalized.criticsRating = entry.criticsRating.trim();
-  }
-  if (typeof entry.audienceRating === 'string' && entry.audienceRating.trim()) {
-    normalized.audienceRating = entry.audienceRating.trim();
-  }
-  return Object.keys(normalized).length ? normalized : null;
-}
-
-function coerceScore(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number.parseFloat(value);
-    if (!Number.isNaN(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
+if (
+  typeof globalThis !== 'undefined' &&
+  typeof globalThis.__SEERRBRIDGE_POPUP_TEST_HOOK__ === 'function'
+) {
+  globalThis.__SEERRBRIDGE_POPUP_TEST_HOOK__({
+    selectBestOverseerrMatch,
+    dedupeMedia,
+    pickPreferredMedia,
+    mediaCompletenessScore,
+    buildRatingEntries,
+    formatPercentScore,
+    formatDecimalScore,
+    normalizeOverseerrResult,
+    normalizeCombinedRatings
+  });
 }
 
 function canUseOverseerrSearch() {
@@ -1281,10 +873,6 @@ function updateWeakDetectionsVisibility() {
   } else {
     elements.weakSection.classList.add('hidden');
   }
-}
-
-function buildPosterUrl(path) {
-  return path ? `https://image.tmdb.org/t/p/w200${path}` : '';
 }
 
 function setStatus(message, tone = 'info') {
@@ -1548,8 +1136,20 @@ async function handleSetupRetry() {
 }
 
 function getActiveTab() {
-  return new Promise((resolve) => {
+  if (!chrome?.tabs?.query) {
+    return Promise.reject(
+      new Error(
+        'Unable to inspect the active tab. Click the extension icon on the tab you want to scan and try again.'
+      )
+    );
+  }
+
+  return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
       resolve(tabs && tabs[0]);
     });
   });
@@ -1562,6 +1162,14 @@ function getActiveTab() {
  * @returns {Promise<DetectionResponse>}
  */
 function sendMessageToTab(tabId, payload) {
+  if (!chrome?.tabs?.sendMessage) {
+    return Promise.reject(
+      new Error(
+        'Unable to contact the active tab. Refresh the page and click the extension icon again to grant temporary access.'
+      )
+    );
+  }
+
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, payload, (response) => {
       if (chrome.runtime.lastError) {

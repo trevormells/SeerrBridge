@@ -10,7 +10,6 @@
   ]);
 
   const DEFAULT_DETECTION_LIMIT = DETECTION_LIMITS.default;
-  const MAX_DETECTION_LIMIT = DETECTION_LIMITS.max;
   const MEDIA_TYPES = ['Movie', 'TVSeries', 'TVEpisode', 'VideoObject'];
   const WEAK_TITLE_PATTERNS = [
     /\blist of\b/i,
@@ -453,6 +452,20 @@
       result = result.trim();
     }
     return result;
+  }
+
+  if (
+    typeof globalThis !== 'undefined' &&
+    typeof globalThis.__SEERRBRIDGE_DETECTOR_TEST_HOOK__ === 'function'
+  ) {
+    globalThis.__SEERRBRIDGE_DETECTOR_TEST_HOOK__({
+      detectMedia,
+      dedupeCandidates,
+      bucketCandidates,
+      isWeakDetection,
+      normalizeTitle,
+      stripTitleNoise
+    });
   }
 })().catch((error) => {
   console.error('Detector bootstrap failed', error);

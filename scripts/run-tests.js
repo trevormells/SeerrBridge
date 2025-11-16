@@ -71,20 +71,15 @@ if (fs.existsSync(testsDir)) {
     }
   };
   collect(testsDir);
+  console.log('Running unit tests via node --test…');
+  const testResult = spawnSync(process.execPath, ['--test'], {
+    cwd: root,
+    stdio: 'inherit'
+  });
 
-  if (testFiles.length === 0) {
-    console.log('No unit test files found.');
-  } else {
-    console.log('Running unit tests via node --test…');
-    const testResult = spawnSync(process.execPath, ['--test', ...testFiles], {
-      cwd: root,
-      stdio: 'inherit'
-    });
-
-    if (testResult.status !== 0) {
-      console.error('Unit tests failed.');
-      process.exit(testResult.status ?? 1);
-    }
+  if (testResult.status !== 0) {
+    console.error('Unit tests failed.');
+    process.exit(testResult.status ?? 1);
   }
 } else {
   console.log('No tests directory found.');
