@@ -10,6 +10,11 @@ SeerrBridge is a Manifest V3 Chrome extension that keeps an eye on the page you'
 - Background service worker that performs Overseerr lookups and requests so they keep working even when the popup is closed.
 - Options page with a quick Overseerr session check that opens a login tab when needed.
 
+## References
+
+- Overseerr API docs – https://api-docs.overseerr.dev/#/ (primary source for endpoint contracts, required payloads, and auth behavior while building the extension)
+- Overseerr project – https://github.com/sct/overseerr (context on the upstream feature set, UI flows, and session handling that SeerrBridge plugs into)
+
 ## Getting started
 
 1. Clone this repository and open `chrome://extensions` in Chrome.
