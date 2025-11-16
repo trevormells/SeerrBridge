@@ -1234,6 +1234,23 @@ function coerceScore(value) {
   return null;
 }
 
+if (
+  typeof globalThis !== 'undefined' &&
+  typeof globalThis.__SEERRBRIDGE_POPUP_TEST_HOOK__ === 'function'
+) {
+  globalThis.__SEERRBRIDGE_POPUP_TEST_HOOK__({
+    selectBestOverseerrMatch,
+    dedupeMedia,
+    pickPreferredMedia,
+    mediaCompletenessScore,
+    buildRatingEntries,
+    formatPercentScore,
+    formatDecimalScore,
+    normalizeOverseerrResult,
+    normalizeCombinedRatings
+  });
+}
+
 function canUseOverseerrSearch() {
   return Boolean(state.settings.overseerrUrl && state.overseerrSessionReady);
 }

@@ -454,6 +454,20 @@
     }
     return result;
   }
+
+  if (
+    typeof globalThis !== 'undefined' &&
+    typeof globalThis.__SEERRBRIDGE_DETECTOR_TEST_HOOK__ === 'function'
+  ) {
+    globalThis.__SEERRBRIDGE_DETECTOR_TEST_HOOK__({
+      detectMedia,
+      dedupeCandidates,
+      bucketCandidates,
+      isWeakDetection,
+      normalizeTitle,
+      stripTitleNoise
+    });
+  }
 })().catch((error) => {
   console.error('Detector bootstrap failed', error);
 });
