@@ -935,39 +935,39 @@ function buildImdbEntry(entry) {
 }
 
 function createRatingLine({ provider, category, value, qualifier, icon }) {
-  const line = document.createElement('div');
-  line.className = 'rating-line';
+  const chip = document.createElement('div');
+  chip.className = 'rating-chip';
+
+  const titleParts = [provider];
+  if (category) {
+    titleParts.push(category);
+  }
+  if (qualifier) {
+    titleParts.push(qualifier);
+  }
+  chip.title = titleParts.join(' • ');
 
   if (icon) {
     const iconElement = document.createElement('img');
     iconElement.src = icon;
     iconElement.alt = `${provider} icon`;
-    iconElement.className = 'rating-icon';
-    line.appendChild(iconElement);
+    iconElement.className = 'rating-chip-icon';
+    chip.appendChild(iconElement);
   }
 
-  const textWrapper = document.createElement('div');
-  textWrapper.className = 'rating-text';
-
-  const heading = document.createElement('div');
-  heading.className = 'rating-heading';
-  heading.textContent = category ? `${provider} • ${category}` : provider;
-  textWrapper.appendChild(heading);
-
-  const valueElement = document.createElement('div');
-  valueElement.className = 'rating-value';
+  const valueElement = document.createElement('span');
+  valueElement.className = 'rating-chip-value';
   valueElement.textContent = value;
-  if (qualifier) {
-    valueElement.appendChild(document.createTextNode(' '));
-    const qualifierElement = document.createElement('span');
-    qualifierElement.className = 'rating-qualifier';
-    qualifierElement.textContent = qualifier;
-    valueElement.appendChild(qualifierElement);
-  }
-  textWrapper.appendChild(valueElement);
+  chip.appendChild(valueElement);
 
-  line.appendChild(textWrapper);
-  return line;
+  if (qualifier) {
+    const qualifierElement = document.createElement('span');
+    qualifierElement.className = 'rating-chip-qualifier';
+    qualifierElement.textContent = qualifier;
+    chip.appendChild(qualifierElement);
+  }
+
+  return chip;
 }
 
 function formatPercentScore(score) {
