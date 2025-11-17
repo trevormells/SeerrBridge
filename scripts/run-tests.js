@@ -55,6 +55,22 @@ console.log('All JavaScript files passed syntax checks.');
 
 const testsDir = path.join(root, 'tests');
 if (fs.existsSync(testsDir)) {
+  const testFiles = [];
+  const collect = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (skipDirs.has(entry.name)) {
+        continue;
+      }
+
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        collect(full);
+      } else if (entry.isFile() && /\.test\.(mjs|cjs|js)$/.test(entry.name)) {
+        testFiles.push(path.relative(root, full));
+      }
+    }
+  };
+  collect(testsDir);
   console.log('Running unit tests via node --test…');
   const testResult = spawnSync(process.execPath, ['--test'], {
     cwd: root,

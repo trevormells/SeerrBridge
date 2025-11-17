@@ -1,0 +1,34 @@
+{
+  "version": "0.1.0",
+  "manifestVersion": "0.1.0",
+  "commit": "1c6624560d3408228a2cebdf8e449af104aa24a4",
+  "generatedAt": "2025-11-16T22:22:03.574Z",
+  "targets": [
+    {
+      "target": "chrome",
+      "displayName": "Chrome Web Store",
+      "description": "Upload-ready ZIP for the Chrome Web Store dashboard.",
+      "archive": "release/artifacts/0.1.0/chrome/seerrbridge-chrome-0.1.0.zip",
+      "sha256": "fb91f09c805a037b3061818b52d5463c1d4bd1fa5964505d48045823b7035261",
+      "manifestVersion": "0.1.0",
+      "packageVersion": "0.1.0",
+      "commit": "1c6624560d3408228a2cebdf8e449af104aa24a4",
+      "generatedAt": "2025-11-16T22:22:03.574Z",
+      "buildInfo": "release/artifacts/0.1.0/chrome/build-info.json",
+      "notes": "release/artifacts/0.1.0/chrome/STORE_NOTES.md"
+    },
+    {
+      "target": "edge",
+      "displayName": "Microsoft Edge Add-ons",
+      "description": "Same code packaged for the Edge Add-ons store. Update notes/screenshots before uploading.",
+      "archive": "release/artifacts/0.1.0/edge/seerrbridge-edge-0.1.0.zip",
+      "sha256": "fb91f09c805a037b3061818b52d5463c1d4bd1fa5964505d48045823b7035261",
+      "manifestVersion": "0.1.0",
+      "packageVersion": "0.1.0",
+      "commit": "1c6624560d3408228a2cebdf8e449af104aa24a4",
+      "generatedAt": "2025-11-16T22:22:03.574Z",
+      "buildInfo": "release/artifacts/0.1.0/edge/build-info.json",
+      "notes": "release/artifacts/0.1.0/edge/STORE_NOTES.md"
+    }
+  ]
+}

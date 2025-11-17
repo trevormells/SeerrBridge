@@ -8,6 +8,7 @@ import {
   normalizeText as normalize
 } from '../lib/text.js';
 import { createSettingsPanel } from '../lib/settingsPanel.js';
+import { deriveMediaInfoStatuses } from '../lib/mediaStatus.js';
 import {
   buildRatingEntries,
   configureRendererContext,
@@ -790,6 +791,27 @@ function openExternalUrl(url) {
   window.open(url, '_blank', 'noopener');
 }
 
+function normalizeOverseerrResult(result = {}) {
+  const mediaType = result.mediaType === 'tv' ? 'tv' : 'movie';
+  const primaryTitle = mediaType === 'tv' ? result.name : result.title;
+  const fallbackTitle = mediaType === 'tv' ? result.title : result.name;
+  const resolvedTitle = primaryTitle || fallbackTitle || '';
+  const releaseDate = mediaType === 'tv' ? result.firstAirDate : result.releaseDate;
+  const releaseYear = releaseDate ? new Date(releaseDate).getFullYear() : Number.NaN;
+  const statuses = deriveMediaInfoStatuses(result.mediaInfo);
+  return {
+    title: resolvedTitle,
+    releaseYear: Number.isNaN(releaseYear) ? '' : String(releaseYear),
+    overview: result.overview || '',
+    poster: buildPosterUrl(result.posterPath),
+    mediaType,
+    tmdbId: typeof result.id === 'number' ? result.id : result.tmdbId ?? null,
+    rating: typeof result.voteAverage === 'number' ? result.voteAverage : null,
+    source: 'overseerr',
+    availabilityStatus: statuses.availability,
+    requestStatus: statuses.requestStatus
+  };
+}
 
 if (
   typeof globalThis !== 'undefined' &&
@@ -1272,6 +1294,192 @@ function promoteResolvedWeakDetections() {
   state.weakDetections = unresolved;
 }
 
+function dedupeMedia(list) {
+  const buckets = new Map();
+
+  list.forEach((item) => {
+    if (!item) {
+      return;
+    }
+    const normalizedTitle = normalize(item.title);
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const releaseKey = extractYearFromString(item.releaseYear);
+    const mediaType = item.mediaType === 'tv' ? 'tv' : 'movie';
+    const bucketKey = `${normalizedTitle}-${releaseKey || ''}-${mediaType}`;
+    const existing = buckets.get(bucketKey);
+    if (!existing) {
+      buckets.set(bucketKey, item);
+      return;
+    }
+
+    buckets.set(bucketKey, pickPreferredMedia(existing, item));
+  });
+
+  return Array.from(buckets.values());
+}
+
+function pickPreferredMedia(current, incoming) {
+  const currentScore = mediaCompletenessScore(current);
+  const incomingScore = mediaCompletenessScore(incoming);
+  if (incomingScore > currentScore) {
+    return incoming;
+  }
+  if (
+    incomingScore === currentScore &&
+    incoming.source === 'overseerr' &&
+    current.source !== 'overseerr'
+  ) {
+    return incoming;
+  }
+  return current;
+}
+
+function mediaCompletenessScore(media = {}) {
+  let score = 0;
+  if (media.tmdbId) {
+    score += 4;
+  }
+  if (typeof media.rating === 'number') {
+    score += 2;
+  }
+  if (media.poster) {
+    score += 1;
+  }
+  if (media.overview) {
+    score += 1;
+  }
+  if (media.source && media.source !== 'detector') {
+    score += 1;
+  }
+  return score;
+}
+
+function truncateDescription(text, limit) {
+  const safeText = `${text || ''}`;
+  if (!limit || limit < 1 || safeText.length <= limit) {
+    return safeText;
+  }
+  return `${safeText.slice(0, limit)}...`;
+}
+
+function buildRequestActionState(media) {
+  const canSubmitRequest = Boolean(state.settings.overseerrUrl && state.overseerrSessionReady);
+
+  const availabilityLabel = buildAvailabilityStatusLabel(media?.availabilityStatus);
+  if (availabilityLabel) {
+    return {
+      type: 'status',
+      label: availabilityLabel
+    };
+  }
+
+  const requestLabel = buildRequestStatusLabel(media?.requestStatus);
+  if (requestLabel) {
+    return {
+      type: 'status',
+      label: requestLabel
+    };
+  }
+
+  return {
+    type: 'button',
+    label: 'Request',
+    disabled: !canSubmitRequest
+  };
+}
+
+function buildAvailabilityStatusLabel(value) {
+  if (typeof value !== 'number' || value === 1) {
+    return '';
+  }
+  const availabilityLabel = formatAvailabilityStatus(value);
+  return availabilityLabel ? buildStatusLabel('Media', availabilityLabel) : '';
+}
+
+function buildRequestStatusLabel(value) {
+  if (typeof value !== 'number') {
+    return '';
+  }
+  const requestLabel = formatRequestStatus(value);
+  return requestLabel ? buildStatusLabel('Request', requestLabel) : '';
+}
+
+function buildStatusLabel(prefix, message) {
+  if (!message) {
+    return '';
+  }
+  if (!prefix) {
+    return message;
+  }
+  return `${prefix} ${message.toLowerCase()}`;
+}
+
+function prepareStatusReadyList(list, canCheckStatus) {
+  return list.map((item) => {
+    if (!item || !isOverseerrTrackableMedia(item.mediaType)) {
+      return item;
+    }
+    const hasEmbeddedStatus =
+      typeof item.availabilityStatus === 'number' || typeof item.requestStatus === 'number';
+    const shouldFetch = Boolean(canCheckStatus && item.tmdbId && !hasEmbeddedStatus);
+    return {
+      ...item,
+      showStatus: true,
+      statusLoading: shouldFetch,
+      availabilityStatus: shouldFetch ? null : item.availabilityStatus ?? null,
+      requestStatus: shouldFetch ? null : item.requestStatus ?? null,
+      statusError: ''
+    };
+  });
+}
+
+function prepareRatingsReadyList(list, canFetchRatings) {
+  return list.map((item) => {
+    if (!item) {
+      return item;
+    }
+    if (!isOverseerrTrackableMedia(item.mediaType)) {
+      return { ...item, showRatings: false };
+    }
+    const hasRatings = hasRatingData(item.ratings);
+    const shouldFetch = Boolean(canFetchRatings && item.tmdbId && !hasRatings);
+    return {
+      ...item,
+      showRatings: true,
+      ratingsLoading: shouldFetch,
+      ratings: hasRatings ? item.ratings : null,
+      ratingsError: ''
+    };
+  });
+}
+
+function hasRatingData(ratings) {
+  if (!ratings || typeof ratings !== 'object') {
+    return false;
+  }
+  return Boolean(ratings.rt || ratings.imdb);
+}
+
+function formatAvailabilityStatus(value) {
+  if (typeof value !== 'number') {
+    return '';
+  }
+  return AVAILABILITY_STATUS_LABELS[value] || '';
+}
+
+function formatRequestStatus(value) {
+  if (typeof value !== 'number') {
+    return '';
+  }
+  return REQUEST_STATUS_LABELS[value] || '';
+}
+
+function isOverseerrTrackableMedia(mediaType) {
+  return mediaType === 'movie' || mediaType === 'tv';
+}
 
 function shouldShowWeakDetections() {
   return Boolean(state.settings.showWeakDetections);
