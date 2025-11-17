@@ -68,7 +68,8 @@ const {
   dedupeMedia,
   buildRatingEntries,
   formatPercentScore,
-  formatDecimalScore
+  formatDecimalScore,
+  createFriendlyDetectionError
 } = globalThis.__POPUP_TEST_API__;
 
 test('selectBestOverseerrMatch prioritizes the preferred media type when available', () => {
@@ -126,4 +127,25 @@ test('buildRatingEntries formats Rotten Tomatoes and IMDb payloads', () => {
   assert.equal(entries[0].display, formatPercentScore(81.3));
   assert.equal(entries[1].display, formatPercentScore(89.6));
   assert.equal(entries[2].display, `${formatDecimalScore(7.62)}/10`);
+});
+
+test('createFriendlyDetectionError explains restricted browser pages', () => {
+  const rawError = new Error('Could not establish connection. Receiving end does not exist.');
+  const friendly = createFriendlyDetectionError(
+    { id: 1, url: 'chrome://settings/' },
+    rawError
+  );
+
+  assert.notStrictEqual(friendly, rawError);
+  assert.match(friendly.message, /built-in browser pages/i);
+});
+
+test('createFriendlyDetectionError suggests enabling file access for file URLs', () => {
+  const rawError = new Error('Could not establish connection. Receiving end does not exist.');
+  const friendly = createFriendlyDetectionError(
+    { id: 2, url: 'file:///Users/example/MovieList.html' },
+    rawError
+  );
+
+  assert.match(friendly.message, /file URLs/i);
 });

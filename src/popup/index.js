@@ -360,9 +360,11 @@ async function refreshDetectedMedia() {
   setStatus('Scanning the active tab…');
   elements.refreshButton.disabled = true;
 
+  let inspectedTab = null;
   try {
     await ensureOverseerrSession();
     const tab = await getActiveTab();
+    inspectedTab = tab;
     if (!tab?.id) {
       throw new Error('No active tab detected.');
     }
@@ -414,8 +416,9 @@ async function refreshDetectedMedia() {
       setStatus('Detection complete.');
     }
   } catch (error) {
+    const friendlyError = createFriendlyDetectionError(inspectedTab, error);
     console.error(error);
-    setStatus(error.message || 'Detection failed.', 'error');
+    setStatus(friendlyError.message || 'Detection failed.', 'error');
   } finally {
     elements.refreshButton.disabled = false;
   }
@@ -801,7 +804,8 @@ if (
     formatPercentScore,
     formatDecimalScore,
     normalizeOverseerrResult,
-    normalizeCombinedRatings
+    normalizeCombinedRatings,
+    createFriendlyDetectionError
   });
 }
 
@@ -1157,6 +1161,92 @@ function sendMessageToTab(tabId, payload) {
       }
     });
   });
+}
+
+const NO_RECEIVER_ERROR_PATTERNS = [
+  'Receiving end does not exist',
+  'Could not establish connection'
+];
+
+const RESTRICTED_PROTOCOLS = new Set([
+  'about:',
+  'chrome:',
+  'chrome-extension:',
+  'chrome-search:',
+  'chrome-untrusted:',
+  'devtools:',
+  'edge:',
+  'moz-extension:',
+  'view-source:'
+]);
+
+const WEBSTORE_HOST = 'chrome.google.com';
+const WEBSTORE_PATH_PREFIX = '/webstore';
+
+function createFriendlyDetectionError(tab, error) {
+  const normalizedError =
+    error instanceof Error ? error : new Error(error?.message || String(error || ''));
+  const message = normalizedError.message || '';
+
+  if (isNoReceiverError(message)) {
+    const restrictionReason = describeRestrictedTab(tab);
+    if (restrictionReason) {
+      return new Error(restrictionReason);
+    }
+    return new Error(
+      'SeerrBridge could not load its detector on this page. Refresh the tab, then open the extension again.'
+    );
+  }
+
+  return normalizedError;
+}
+
+function isNoReceiverError(message) {
+  if (!message) {
+    return false;
+  }
+
+  return NO_RECEIVER_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
+function describeRestrictedTab(tab) {
+  const url = getTabUrl(tab);
+  if (!url) {
+    return 'Open SeerrBridge on the tab you want to scan and try again.';
+  }
+
+  if (url.startsWith('view-source:')) {
+    return 'SeerrBridge cannot scan built-in browser pages such as view-source.';
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return '';
+  }
+
+  if (RESTRICTED_PROTOCOLS.has(parsedUrl.protocol)) {
+    return 'SeerrBridge cannot scan built-in browser pages such as chrome://settings. Switch to a regular website tab.';
+  }
+
+  if (
+    parsedUrl.hostname === WEBSTORE_HOST &&
+    parsedUrl.pathname &&
+    parsedUrl.pathname.startsWith(WEBSTORE_PATH_PREFIX)
+  ) {
+    return 'Chrome Web Store blocks extensions from running. Visit a different site to detect titles.';
+  }
+
+  if (parsedUrl.protocol === 'file:') {
+    return 'Enable "Allow access to file URLs" for SeerrBridge in chrome://extensions to scan local files.';
+  }
+
+  return '';
+}
+
+function getTabUrl(tab) {
+  return (tab?.url || tab?.pendingUrl || '').trim();
 }
 
 function promoteResolvedWeakDetections() {
