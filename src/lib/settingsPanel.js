@@ -1,4 +1,5 @@
 import { DESCRIPTION_LENGTH_LIMITS, DETECTION_LIMITS } from './config.js';
+import { OVERSEERR_AUTH_MODES } from './overseerr.js';
 import { callBackground } from './runtime.js';
 import { sanitizeDescriptionLength, sanitizeDetectionLimit } from './sanitizers.js';
 import { saveSettings } from './settings.js';
@@ -23,6 +24,8 @@ import { normalizeBaseUrl } from './url.js';
  * @property {boolean} showWeakDetections
  * @property {number} maxDetections
  * @property {number} descriptionLength
+ * @property {string} [overseerrApiKey]
+ * @property {string} [overseerrAuthMethod]
  */
 
 /**
@@ -64,6 +67,11 @@ export function readSettingsFormValues(form, overrides = {}) {
     overrides.descriptionLengthDefault ?? DESCRIPTION_LENGTH_LIMITS.defaultPopup;
   const maxDetectionsDefault = overrides.maxDetectionsDefault ?? DETECTION_LIMITS.default;
 
+  const apiKey = typeof form.overseerrApiKey?.value === 'string' ? form.overseerrApiKey.value.trim() : '';
+  const authMethod = apiKey
+    ? OVERSEERR_AUTH_MODES.COOKIES_WITH_API_KEY_FALLBACK
+    : OVERSEERR_AUTH_MODES.COOKIES;
+
   return {
     overseerrUrl: normalizeBaseUrl(form.overseerrUrl?.value || ''),
     prefer4k: Boolean(form.prefer4k?.checked),
@@ -72,7 +80,9 @@ export function readSettingsFormValues(form, overrides = {}) {
     descriptionLength: sanitizeDescriptionLength(
       form.descriptionLength?.value,
       descriptionLengthDefault
-    )
+    ),
+    overseerrApiKey: apiKey,
+    overseerrAuthMethod: authMethod
   };
 }
 
@@ -102,6 +112,9 @@ export function writeSettingsFormValues(form, values = {}, overrides = {}) {
     values.descriptionLength ?? descriptionLengthDefault,
     descriptionLengthDefault
   );
+  if (form.overseerrApiKey) {
+    form.overseerrApiKey.value = values.overseerrApiKey || '';
+  }
 }
 
 /**
@@ -302,6 +315,14 @@ function renderTemplate({ idPrefix, descriptionLengthDefault, maxDetectionsDefau
         <input id="${id('showWeakDetections')}" name="showWeakDetections" type="checkbox" />
         Show weak detections (debug)
       </label>
+
+      <label for="${id('overseerrApiKey')}">Overseerr API key (optional)</label>
+      <input
+        id="${id('overseerrApiKey')}"
+        name="overseerrApiKey"
+        placeholder="Paste your Overseerr API key"
+        autocomplete="off"
+      />
 
       <label for="${id('maxDetections')}">Maximum detections shown</label>
       <input

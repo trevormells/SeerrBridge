@@ -1,7 +1,12 @@
 /**
  * Keys read from chrome.storage.sync across extension surfaces.
  */
-export const CORE_SETTINGS_KEYS = Object.freeze(['overseerrUrl', 'prefer4k']);
+export const CORE_SETTINGS_KEYS = Object.freeze([
+  'overseerrUrl',
+  'prefer4k',
+  'overseerrApiKey',
+  'overseerrAuthMethod'
+]);
 
 /**
  * Keys required by popup/options screens (superset of CORE settings).

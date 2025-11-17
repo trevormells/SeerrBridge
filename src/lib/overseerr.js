@@ -1,5 +1,11 @@
 import { buildOverseerrUrl, sanitizeBaseUrl } from './url.js';
 
+export const OVERSEERR_AUTH_MODES = Object.freeze({
+  COOKIES: 'cookies',
+  API_KEY: 'api-key',
+  COOKIES_WITH_API_KEY_FALLBACK: 'cookies-with-api-key-fallback'
+});
+
 export class OverseerrAuthError extends Error {
   constructor(message) {
     super(message);
@@ -19,26 +25,38 @@ export class OverseerrAuthError extends Error {
 export async function executeOverseerrRequest(baseUrl, endpoint, init = {}, options = {}) {
   const sanitizedBase = sanitizeBaseUrl(baseUrl);
   const url = buildOverseerrUrl(sanitizedBase, endpoint);
-  const requestInit = {
-    credentials: 'include',
-    ...init
+  const normalizedAuth = normalizeAuthStrategy(options.authStrategy);
+
+  const fetchWithMode = async (mode) => {
+    const requestInit = buildRequestInit(init, mode, normalizedAuth.apiKey);
+    try {
+      return await fetch(url, requestInit);
+    } catch (error) {
+      throw new Error('Unable to reach Overseerr. Check your URL and try again.');
+    }
   };
 
-  let response;
-  try {
-    response = await fetch(url, requestInit);
-  } catch (error) {
-    throw new Error('Unable to reach Overseerr. Check your URL and try again.');
+  let usedAuthMode = normalizedAuth.mode;
+  let response = await fetchWithMode(usedAuthMode);
+
+  if (response.status === 401 && normalizedAuth.allowApiKeyFallback) {
+    usedAuthMode = OVERSEERR_AUTH_MODES.API_KEY;
+    response = await fetchWithMode(usedAuthMode);
   }
 
   if (response.status === 401) {
-    if (typeof options.onAuthFailure === 'function') {
+    if (usedAuthMode !== OVERSEERR_AUTH_MODES.API_KEY && typeof options.onAuthFailure === 'function') {
       await options.onAuthFailure(sanitizedBase);
     }
-    throw new OverseerrAuthError('Log into Overseerr in the opened tab, then retry.');
+
+    const message =
+      usedAuthMode === OVERSEERR_AUTH_MODES.API_KEY
+        ? 'Update your Overseerr API key, then retry.'
+        : 'Log into Overseerr in the opened tab, then retry.';
+    throw new OverseerrAuthError(message);
   }
 
-  return { response, url };
+  return { response, url, authMode: usedAuthMode };
 }
 
 /**
@@ -118,4 +136,46 @@ export async function fetchOverseerrStatus(baseUrl) {
     endpoint: url,
     raw: payload
   };
+}
+
+function normalizeAuthStrategy(strategy = {}) {
+  const providedMode = typeof strategy.mode === 'string' ? strategy.mode : null;
+  const trimmedKey = typeof strategy.apiKey === 'string' ? strategy.apiKey.trim() : '';
+  const hasKey = Boolean(trimmedKey);
+
+  if (providedMode === OVERSEERR_AUTH_MODES.API_KEY && hasKey) {
+    return { mode: OVERSEERR_AUTH_MODES.API_KEY, apiKey: trimmedKey, allowApiKeyFallback: false };
+  }
+
+  if (providedMode === OVERSEERR_AUTH_MODES.COOKIES_WITH_API_KEY_FALLBACK && hasKey) {
+    return {
+      mode: OVERSEERR_AUTH_MODES.COOKIES,
+      apiKey: trimmedKey,
+      allowApiKeyFallback: true
+    };
+  }
+
+  return { mode: OVERSEERR_AUTH_MODES.COOKIES, apiKey: hasKey ? trimmedKey : null, allowApiKeyFallback: false };
+}
+
+function buildRequestInit(baseInit, authMode, apiKey) {
+  const headers = new Headers(baseInit.headers || undefined);
+  if (authMode === OVERSEERR_AUTH_MODES.API_KEY && apiKey) {
+    headers.set('X-Api-Key', apiKey);
+  } else {
+    headers.delete('X-Api-Key');
+  }
+
+  const requestInit = {
+    ...baseInit,
+    headers
+  };
+
+  if (authMode === OVERSEERR_AUTH_MODES.API_KEY) {
+    requestInit.credentials = 'omit';
+  } else {
+    requestInit.credentials = baseInit.credentials ?? 'include';
+  }
+
+  return requestInit;
 }
