@@ -59,6 +59,8 @@
  * @typedef {Object} PopupSettings
  * @property {string} overseerrUrl
  * @property {boolean} prefer4k
+ * @property {string} [overseerrApiKey]
+ * @property {string} [overseerrAuthMethod]
  * @property {boolean} showWeakDetections
  * @property {number} maxDetections
  * @property {number} descriptionLength
