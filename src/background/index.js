@@ -3,7 +3,8 @@ import {
   executeOverseerrRequest,
   OverseerrAuthError,
   logOverseerrFailure,
-  fetchOverseerrStatus
+  fetchOverseerrStatus,
+  OVERSEERR_AUTH_MODES
 } from '../lib/overseerr.js';
 import { buildOverseerrUrl, sanitizeBaseUrl } from '../lib/url.js';
 
@@ -14,7 +15,8 @@ const defaultDependencies = {
   logOverseerrFailure,
   fetchOverseerrStatus,
   sanitizeBaseUrl,
-  buildOverseerrUrl
+  buildOverseerrUrl,
+  OVERSEERR_AUTH_MODES
 };
 
 const dependencies = { ...defaultDependencies };
@@ -104,6 +106,7 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
   }
 
   const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
+  const authStrategy = deriveAuthStrategy(settings);
   let searchText = query;
   if (Number.isFinite(year)) {
     const yearValue = Number.parseInt(year, 10);
@@ -121,7 +124,7 @@ async function handleOverseerrSearch({ query, page = 1, year }) {
     sanitizedBase,
     endpointWithQuery,
     {},
-    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false), authStrategy }
   );
 
   if (!response.ok) {
@@ -158,7 +161,11 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
   }
 
   const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
-  await ensureOverseerrSession(sanitizedBase, { openLoginTabOnFailure: true });
+  const authStrategy = deriveAuthStrategy(settings);
+  await ensureOverseerrSession(sanitizedBase, {
+    openLoginTabOnFailure: true,
+    authStrategy
+  });
   const normalizedType = mediaType === 'tv' ? 'tv' : 'movie';
   const body = {
     mediaType: normalizedType,
@@ -184,7 +191,8 @@ async function handleOverseerrRequest({ tmdbId, mediaType }) {
       body: JSON.stringify(body)
     },
     {
-      onAuthFailure: createAuthFailureHandler(sanitizedBase, true)
+      onAuthFailure: createAuthFailureHandler(sanitizedBase, true),
+      authStrategy
     }
   );
 
@@ -228,11 +236,12 @@ async function handleOverseerrMediaStatus({ tmdbId, mediaType }) {
       ? `/api/v1/tv/${encodeURIComponent(tmdbId)}`
       : `/api/v1/movie/${encodeURIComponent(tmdbId)}`;
   const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
+  const authStrategy = deriveAuthStrategy(settings);
   const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     endpoint,
     {},
-    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false), authStrategy }
   );
 
   if (response.status === 404) {
@@ -274,11 +283,12 @@ async function handleOverseerrRatings({ tmdbId, mediaType }) {
       ? `/api/v1/tv/${encodeURIComponent(tmdbId)}/ratingscombined`
       : `/api/v1/movie/${encodeURIComponent(tmdbId)}/ratingscombined`;
   const sanitizedBase = dependencies.sanitizeBaseUrl(settings.overseerrUrl);
+  const authStrategy = deriveAuthStrategy(settings);
   const { response, url } = await dependencies.executeOverseerrRequest(
     sanitizedBase,
     endpoint,
     {},
-    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false) }
+    { onAuthFailure: createAuthFailureHandler(sanitizedBase, false), authStrategy }
   );
 
   if (response.status === 404) {
@@ -320,6 +330,25 @@ function deriveMediaInfoStatuses(mediaInfo) {
   return { availability, requestStatus };
 }
 
+function deriveAuthStrategy(settings = {}) {
+  const modes = dependencies.OVERSEERR_AUTH_MODES || OVERSEERR_AUTH_MODES;
+  const trimmedKey =
+    typeof settings?.overseerrApiKey === 'string' ? settings.overseerrApiKey.trim() : '';
+  const normalizedMethod = typeof settings?.overseerrAuthMethod === 'string'
+    ? settings.overseerrAuthMethod
+    : null;
+
+  if (normalizedMethod === modes.API_KEY && trimmedKey) {
+    return { mode: modes.API_KEY, apiKey: trimmedKey };
+  }
+
+  if (normalizedMethod === modes.COOKIES_WITH_API_KEY_FALLBACK && trimmedKey) {
+    return { mode: modes.COOKIES_WITH_API_KEY_FALLBACK, apiKey: trimmedKey };
+  }
+
+  return { mode: modes.COOKIES };
+}
+
 function getSettings() {
   return dependencies.loadSettings(STORAGE_KEYS);
 }
@@ -357,17 +386,20 @@ async function handleCheckOverseerrSession({
   promptLogin = false,
   forceRefresh = false
 } = {}) {
+  const settings = await getSettings();
   const base =
     overseerrUrl && overseerrUrl.trim()
       ? dependencies.sanitizeBaseUrl(overseerrUrl)
-      : dependencies.sanitizeBaseUrl((await getSettings()).overseerrUrl || '');
+      : dependencies.sanitizeBaseUrl(settings.overseerrUrl || '');
   if (!base) {
     throw new Error('Add your Overseerr URL in the options page.');
   }
 
+  const authStrategy = deriveAuthStrategy(settings);
   await ensureOverseerrSession(base, {
     openLoginTabOnFailure: promptLogin,
-    forceRefresh
+    forceRefresh,
+    authStrategy
   });
   return { authenticated: true };
 }
@@ -379,12 +411,21 @@ async function ensureOverseerrSession(baseUrl, options = {}) {
     return true;
   }
 
+  const fallbackMode =
+    (dependencies.OVERSEERR_AUTH_MODES && dependencies.OVERSEERR_AUTH_MODES.COOKIES) ||
+    OVERSEERR_AUTH_MODES.COOKIES;
+  const authStrategy =
+    options.authStrategy && typeof options.authStrategy === 'object'
+      ? options.authStrategy
+      : { mode: fallbackMode };
+
   const { response, url } = await dependencies.executeOverseerrRequest(
     sanitized,
     '/api/v1/auth/me',
     {},
     {
-      onAuthFailure: createAuthFailureHandler(sanitized, Boolean(options.openLoginTabOnFailure))
+      onAuthFailure: createAuthFailureHandler(sanitized, Boolean(options.openLoginTabOnFailure)),
+      authStrategy
     }
   );
 
