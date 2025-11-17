@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const helpersPromise = import('../src/lib/settingsPanel.js');
 const configPromise = import('../src/lib/config.js');
+const overseerrPromise = import('../src/lib/overseerr.js');
 
 function createMockForm(initial = {}) {
   const form = {
@@ -10,7 +11,8 @@ function createMockForm(initial = {}) {
     prefer4k: { checked: false },
     showWeakDetections: { checked: false },
     maxDetections: { value: '' },
-    descriptionLength: { value: '' }
+    descriptionLength: { value: '' },
+    overseerrApiKey: { value: '' }
   };
   if ('overseerrUrl' in initial) {
     form.overseerrUrl.value = initial.overseerrUrl;
@@ -27,14 +29,18 @@ function createMockForm(initial = {}) {
   if ('descriptionLength' in initial) {
     form.descriptionLength.value = initial.descriptionLength;
   }
+  if ('overseerrApiKey' in initial) {
+    form.overseerrApiKey.value = initial.overseerrApiKey;
+  }
   return form;
 }
 
 test('readSettingsFormValues normalizes inputs and clamps limits', async () => {
-  const [{ readSettingsFormValues }, { DETECTION_LIMITS, DESCRIPTION_LENGTH_LIMITS }] = await Promise.all([
-    helpersPromise,
-    configPromise
-  ]);
+  const [
+    { readSettingsFormValues },
+    { DETECTION_LIMITS, DESCRIPTION_LENGTH_LIMITS },
+    { OVERSEERR_AUTH_MODES }
+  ] = await Promise.all([helpersPromise, configPromise, overseerrPromise]);
 
   const form = createMockForm({
     overseerrUrl: 'overseerr.example.com///',
@@ -54,6 +60,8 @@ test('readSettingsFormValues normalizes inputs and clamps limits', async () => {
   assert.equal(values.showWeakDetections, false);
   assert.equal(values.maxDetections, DETECTION_LIMITS.max);
   assert.equal(values.descriptionLength, DESCRIPTION_LENGTH_LIMITS.min);
+  assert.equal(values.overseerrApiKey, '');
+  assert.equal(values.overseerrAuthMethod, OVERSEERR_AUTH_MODES.COOKIES);
 });
 
 test('writeSettingsFormValues populates sanitized data back to the form', async () => {
@@ -70,7 +78,8 @@ test('writeSettingsFormValues populates sanitized data back to the form', async 
       prefer4k: true,
       showWeakDetections: true,
       maxDetections: 0,
-      descriptionLength: 2000
+      descriptionLength: 2000,
+      overseerrApiKey: 'abc123'
     },
     { descriptionLengthDefault: 30, maxDetectionsDefault: 10 }
   );
@@ -80,6 +89,7 @@ test('writeSettingsFormValues populates sanitized data back to the form', async 
   assert.equal(form.showWeakDetections.checked, true);
   assert.equal(form.maxDetections.value, DETECTION_LIMITS.min);
   assert.equal(form.descriptionLength.value, DESCRIPTION_LENGTH_LIMITS.max);
+  assert.equal(form.overseerrApiKey.value, 'abc123');
 });
 
 test('testOverseerrWorkflow handles missing URLs gracefully', async () => {
